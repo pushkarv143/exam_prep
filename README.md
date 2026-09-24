@@ -333,6 +333,8 @@ docker compose up -d --build
 The dev data also seeds JEE Main chapters/topics, 10 LaTeX questions, and the free
 **"JEE Main Free Starter Series"** with a published 10-question test. The demo student is enrolled in it.
 
+The series also has a **"Diagram Practice Test (figures & graphs)"**, seeded by `V1002` with 6 questions that use figures: an incline diagram, a v–t graph, a projectile path, an energy-level diagram, a parabola, and picture options for molecular shapes. A free-body diagram appears in one solution. It allows 3 attempts. The SVG figures live in `frontend/public/samples/` and are served at `/samples/…`. Regenerate them with `node frontend/scripts/generate-sample-figures.cjs`.
+
 ## Try the auth flow
 
 ```bash
