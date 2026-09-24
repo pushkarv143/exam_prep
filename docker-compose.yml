@@ -1,0 +1,142 @@
+# ---------------------------------------------------------------------------
+# Local stack.
+#   Infra only (run the backend from your IDE):   docker compose up -d postgres redis minio minio-init mailpit
+#   Everything:                                   docker compose up -d --build
+#   With pgAdmin:                                 docker compose --profile tools up -d
+# Copy .env.example to .env first to override defaults.
+# ---------------------------------------------------------------------------
+name: examprep
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-examprep}
+      POSTGRES_USER: ${DB_USERNAME:-examprep}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-examprep}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    # AOF persistence + noeviction: autosave buffers (attempt answers) must never be
+    # silently evicted under memory pressure. Writes should fail loudly instead.
+    command: >
+      redis-server --appendonly yes --appendfsync everysec
+      --maxmemory ${REDIS_MAXMEMORY:-512mb} --maxmemory-policy noeviction
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
+    ports:
+      - "${MINIO_API_PORT:-9100}:9000"      # S3 API (host 9100: port 9000 is often taken, e.g. by Zscaler)
+      - "${MINIO_CONSOLE_PORT:-9101}:9001"  # web console
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # One-shot: create the bucket and allow anonymous read of public question images.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $${S3_ACCESS_KEY:-minioadmin} $${S3_SECRET_KEY:-minioadmin} &&
+      mc mb --ignore-existing local/$${S3_BUCKET:-examprep} &&
+      mc anonymous set download local/$${S3_BUCKET:-examprep}/public
+      "
+    environment:
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-examprep}
+    restart: "no"
+
+  # SMTP catcher for dev: every email the app sends shows up at http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-examprep}
+      DB_USERNAME: ${DB_USERNAME:-examprep}
+      DB_PASSWORD: ${DB_PASSWORD:-examprep}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      JWT_SECRET: ${JWT_SECRET:-ZGV2LW9ubHktc2VjcmV0LWNoYW5nZS1tZS1pbi1wcm9kdWN0aW9uLTAxMjM0NTY3ODk=}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@examprep.local}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-Admin@123}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:3000}
+      SINGLE_SESSION_ENABLED: ${SINGLE_SESSION_ENABLED:-false}
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-examprep}
+      # The API talks to minio:9000 inside the network; browsers load images via localhost.
+      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-http://localhost:9100/examprep}
+    ports:
+      - "8080:8080"
+
+  # SPA + reverse proxy: open http://localhost:3000 (the API is available at /api via nginx)
+  frontend:
+    build:
+      context: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    profiles: ["tools"]
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@examprep.dev}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

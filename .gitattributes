@@ -1,0 +1,9 @@
+# Keep LF in the repository and working tree (the Docker images and Linux CI run these files).
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.jar binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.xlsx binary

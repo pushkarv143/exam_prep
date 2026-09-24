@@ -1,0 +1,113 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "katex/dist/katex.min.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * shadcn/ui design tokens (new-york, neutral). The brand colour comes from three numbers
+ * (--brand-l/c/h, OKLCH) set by the [data-accent] presets below, so every primary, ring and
+ * accent shade follows the chosen colour in both light and dark mode.
+ */
+:root {
+  --brand-l: 0.457;
+  --brand-c: 0.24;
+  --brand-h: 277;
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(var(--brand-l) var(--brand-c) var(--brand-h));
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.962 0.018 var(--brand-h));
+  --accent-foreground: oklch(0.359 0.144 var(--brand-h));
+  --destructive: oklch(0.577 0.245 27.325);
+  --success: oklch(0.596 0.145 163.23);
+  --warning: oklch(0.769 0.188 70.08);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(calc(var(--brand-l) + 0.13) var(--brand-c) var(--brand-h));
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(calc(var(--brand-l) + 0.12) var(--brand-c) var(--brand-h));
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.3 0.06 var(--brand-h));
+  --accent-foreground: oklch(0.88 0.08 var(--brand-h));
+  --destructive: oklch(0.704 0.191 22.216);
+  --success: oklch(0.696 0.17 162.48);
+  --warning: oklch(0.828 0.189 84.429);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(calc(var(--brand-l) + 0.2) var(--brand-c) var(--brand-h));
+}
+
+/* Brand colour presets (see ACCENTS in store/theme.ts). Indigo is the :root default. */
+[data-accent='blue'] { --brand-l: 0.488; --brand-c: 0.217; --brand-h: 264; }
+[data-accent='violet'] { --brand-l: 0.491; --brand-c: 0.27; --brand-h: 292; }
+[data-accent='teal'] { --brand-l: 0.511; --brand-c: 0.096; --brand-h: 186; }
+[data-accent='emerald'] { --brand-l: 0.508; --brand-c: 0.118; --brand-h: 165.6; }
+[data-accent='rose'] { --brand-l: 0.514; --brand-c: 0.222; --brand-h: 16.9; }
+[data-accent='orange'] { --brand-l: 0.553; --brand-c: 0.195; --brand-h: 38.4; }
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+}
+
+/* Recharts' default tooltip is hard-coded white; follow the theme instead. */
+.recharts-default-tooltip {
+  background-color: var(--popover) !important;
+  border-color: var(--border) !important;
+  color: var(--popover-foreground);
+  border-radius: calc(var(--radius) - 2px);
+}

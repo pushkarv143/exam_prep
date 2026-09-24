@@ -1,0 +1,21 @@
+# Integration tests. Postgres and Redis come from Testcontainers (@ServiceConnection
+# overrides the datasource and redis properties).
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/devdata
+  main:
+    banner-mode: off
+
+app:
+  rate-limit:
+    enabled: false         # covered by a dedicated limiter test instead
+  notification:
+    email:
+      enabled: false       # log only; no SMTP in tests
+  attempt:
+    max-tab-switches: 3    # exercised by AttemptFlowIntegrationTest
+
+logging:
+  level:
+    com.examprep: INFO
+    org.testcontainers: WARN

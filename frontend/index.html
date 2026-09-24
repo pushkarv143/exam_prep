@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Online mock tests for JEE Main, JEE Advanced and NEET with instant results, All-India rank and analytics." />
+    <meta name="theme-color" content="#4338ca" />
+    <script>
+      // Apply the saved theme before first paint, so dark mode never flashes white.
+      try {
+        var t = (JSON.parse(localStorage.getItem('examprep-theme') || '{}').state) || {}
+        var dark = t.mode === 'dark' || (t.mode !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)
+        if (dark) document.documentElement.classList.add('dark')
+        document.documentElement.dataset.accent = t.accent || 'indigo'
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+      } catch (e) {}
+    </script>
+    <title>ExamPrep: JEE &amp; NEET Mock Test Series</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

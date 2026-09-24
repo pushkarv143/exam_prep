@@ -1,0 +1,18 @@
+# Local development: docker-compose infra on localhost, readable logs, sample data.
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/devdata
+  jpa:
+    properties:
+      hibernate:
+        format_sql: true
+
+logging:
+  level:
+    com.examprep: DEBUG
+    org.hibernate.SQL: INFO          # switch to DEBUG to see SQL
+
+management:
+  endpoint:
+    health:
+      show-details: always
