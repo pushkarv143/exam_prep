@@ -1,3 +1,10 @@
+# Future additions
+1. Providing JEE Mains Solution (Only MATHS) - https://huggingface.co/mradermacher/Aryabhata-2.0-i1-GGUF (ML - MODEL)
+2. Might Fine-tune for Physics and Chemistry and Bio Questions Solutions ( if needed )
+3. Login and Authentication
+4. Simple QRCode page for sample Payment
+---
+
 # ExamPrep — Online Test-Series Platform (JEE / NEET)
 
 A modular-monolith Spring Boot 3.5 / Java 21 backend with a React 18 frontend for timed mock tests:
