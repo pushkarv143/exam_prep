@@ -58,11 +58,32 @@ export default function SeriesListPage() {
           <Input className="pl-9" placeholder="Search test series" value={search} aria-label="Search test series"
                  onChange={(e) => setSearch(e.target.value)} />
         </div>
-        <NativeSelect value={exam} onChange={(e) => update({ exam: e.target.value })} aria-label="Exam">
+        <NativeSelect
+            value={exam}
+            onChange={(e) => update({ exam: e.target.value })}
+            aria-label="Exam"
+            className="native-select"
+        >
           <option value="">All exams</option>
           {exams.data?.map((e) => <option key={e.code} value={e.code}>{e.name}</option>)}
         </NativeSelect>
-        <NativeSelect value={type} onChange={(e) => update({ type: e.target.value })} aria-label="Price">
+
+        {/*TEsting*/}
+        <NativeSelect
+            value={type}
+            onChange={(e) => update({ type: e.target.value })}
+            aria-label="Price"
+            className="native-select"
+            >
+            {/*style={{*/}
+            {/*  backgroundColor: theme === "dark" ? "#1e1e1e" : "#ffffff",*/}
+            {/*  color: theme === "dark" ? "#ffffff" : "#111827",*/}
+            {/*  border: `1px solid ${*/}
+            {/*      theme === "dark" ? "#444444" : "#d1d5db"*/}
+            {/*  }`,*/}
+            {/*  colorScheme: theme,*/}
+            {/*}}*/}
+
           <option value="">Free &amp; paid</option>
           <option value="free">Free only</option>
           <option value="paid">Paid only</option>
