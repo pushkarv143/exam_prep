@@ -1,27 +1,25 @@
 import { useQuery } from '@tanstack/react-query'
-import { Link, useParams } from 'react-router-dom'
-import { Award, BookOpenCheck, Clock, Crosshair, Hourglass, Loader2, Percent, Trophy } from 'lucide-react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { BookOpenCheck, Hourglass, Loader2, MessageCircleQuestion, Trophy } from 'lucide-react'
 import {
-  Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ReferenceLine,
+  ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
-import { attemptsApi } from '@/api/attempts'
+import { attemptsApi, useTestInfo } from '@/api/attempts'
+import { useAnalytics } from '@/api/analytics'
 import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
 import { PageHeader } from '@/components/layout/Layouts'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { formatClock, formatDateTime, formatNumber } from '@/lib/format'
+import { OUTCOME_COLORS, resultKeys } from './resultColors'
+import { ScoreReveal } from './components/ScoreReveal'
+import { TimeInsights } from './components/TimeInsights'
+import { ShareResult } from './components/ShareCard'
 import type { Result } from '@/types/exam'
 
-export const OUTCOME_COLORS = {
-  correct: 'var(--success)', incorrect: 'var(--destructive)', partial: 'var(--warning)', unattempted: 'var(--muted-foreground)',
-}
-
-export const resultKeys = {
-  result: (id: string) => ['result', id] as const,
-  comparison: (id: string) => ['comparison', id] as const,
-  solutions: (id: string) => ['solutions', id] as const,
-}
+export { OUTCOME_COLORS, resultKeys }
 
 export default function ResultPage() {
   const { attemptId = '' } = useParams()
@@ -55,18 +53,40 @@ export default function ResultPage() {
 }
 
 function ResultView({ r }: { r: Result }) {
+  const navigate = useNavigate()
   const comparison = useQuery({
     queryKey: resultKeys.comparison(r.attemptId),
     queryFn: () => attemptsApi.comparison(r.attemptId),
     enabled: r.ranked,
   })
+  const testInfo = useTestInfo(r.testId)
+  const solutions = useQuery({
+    queryKey: resultKeys.solutions(r.attemptId),
+    queryFn: () => attemptsApi.solutions(r.attemptId),
+    enabled: r.solutionsAvailable,
+  })
+  const analytics = useAnalytics()
+
+  const goSolutions = (filter?: string) =>
+    navigate(`/attempts/${r.attemptId}/solutions${filter ? `?filter=${filter}` : ''}`)
+
   const pie = [
-    { name: 'Correct', value: r.correct ?? 0, color: OUTCOME_COLORS.correct },
-    { name: 'Incorrect', value: r.incorrect ?? 0, color: OUTCOME_COLORS.incorrect },
-    { name: 'Partial', value: r.partial ?? 0, color: OUTCOME_COLORS.partial },
-    { name: 'Not attempted', value: r.unattempted ?? 0, color: OUTCOME_COLORS.unattempted },
+    { name: 'Correct', key: 'CORRECT', value: r.correct ?? 0, color: OUTCOME_COLORS.correct },
+    { name: 'Incorrect', key: 'INCORRECT', value: r.incorrect ?? 0, color: OUTCOME_COLORS.incorrect },
+    { name: 'Partial', key: 'PARTIAL', value: r.partial ?? 0, color: OUTCOME_COLORS.partial },
+    { name: 'Not attempted', key: 'UNATTEMPTED', value: r.unattempted ?? 0, color: OUTCOME_COLORS.unattempted },
   ].filter((p) => p.value > 0)
   const sections = r.sections.map((s) => ({ name: s.name, score: Number(s.score), max: Number(s.maxScore) }))
+  const reviewItems = solutions.data?.sections.flatMap((s) => s.questions) ?? []
+
+  // "You vs your past attempts" on this same test, with topper/class markers.
+  const pastAttempts = (analytics.data?.trend ?? [])
+    .filter((t) => t.testId === r.testId)
+    .map((t, i) => ({ name: `Attempt ${i + 1}`, attemptId: t.attemptId, percentage: Number(t.percentage), you: t.attemptId === r.attemptId }))
+  const showTrend = pastAttempts.length >= 2
+  const maxScore = Number(r.maxScore) || 1
+  const topperPct = comparison.data ? (Number(comparison.data.topper.score ?? 0) / maxScore) * 100 : undefined
+  const averagePct = comparison.data ? (Number(comparison.data.average.score ?? 0) / maxScore) * 100 : undefined
 
   return (
     <>
@@ -75,6 +95,7 @@ function ResultView({ r }: { r: Result }) {
         description={`Attempt ${r.attemptNo}${r.evaluatedAt ? ` · evaluated ${formatDateTime(r.evaluatedAt)}` : ''}${r.ranked ? '' : ' · practice attempt (not ranked)'}`}
         actions={
           <div className="flex flex-wrap gap-2">
+            <ShareResult r={r} />
             <Button variant="outline" asChild><Link to={`/tests/${r.testId}/leaderboard`}><Trophy /> Leaderboard</Link></Button>
             {r.solutionsAvailable ? (
               <Button asChild><Link to={`/attempts/${r.attemptId}/solutions`}><BookOpenCheck /> Solutions</Link></Button>
@@ -87,25 +108,19 @@ function ResultView({ r }: { r: Result }) {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <Stat icon={Award} label="Score" value={`${formatNumber(r.score)} / ${formatNumber(r.maxScore)}`}
-              hint={`${formatNumber(r.percentage, 1)}%`} />
-        <Stat icon={Trophy} label={r.rankFinal ? 'Rank' : 'Rank (provisional)'}
-              value={r.rank != null ? `#${r.rank}` : '–'}
-              hint={r.totalCandidates ? `of ${formatNumber(r.totalCandidates, 0)}` : undefined} />
-        <Stat icon={Percent} label="Percentile" value={r.percentile != null ? formatNumber(r.percentile, 2) : '–'} />
-        <Stat icon={Crosshair} label="Accuracy" value={`${formatNumber(r.accuracy, 1)}%`}
-              hint={`${r.correct ?? 0} correct · ${r.incorrect ?? 0} wrong`} />
-        <Stat icon={Clock} label="Time taken" value={formatClock(r.timeTakenSeconds ?? 0)} />
-      </div>
+      <ScoreReveal r={r} />
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[360px_1fr]">
         <Card>
-          <CardHeader><CardTitle>Question outcomes</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>Question outcomes</CardTitle>
+            <CardDescription>Tap a slice to review those questions</CardDescription>
+          </CardHeader>
           <CardContent className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={pie} dataKey="value" nameKey="name" innerRadius={50} outerRadius={85} paddingAngle={2}>
+                <Pie data={pie} dataKey="value" nameKey="name" innerRadius={50} outerRadius={85} paddingAngle={2}
+                     onClick={(d) => goSolutions((d?.payload as { key?: string })?.key)} className="cursor-pointer">
                   {pie.map((p) => <Cell key={p.name} fill={p.color} />)}
                 </Pie>
                 <Tooltip />
@@ -115,7 +130,10 @@ function ResultView({ r }: { r: Result }) {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle>Section scores</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>Section scores</CardTitle>
+            <CardDescription>Your score against the maximum in each section</CardDescription>
+          </CardHeader>
           <CardContent className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={sections} margin={{ top: 5, right: 12, bottom: 0, left: -12 }}>
@@ -131,6 +149,36 @@ function ResultView({ r }: { r: Result }) {
           </CardContent>
         </Card>
       </div>
+
+      {showTrend && (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>You vs your past attempts</CardTitle>
+            <CardDescription>
+              Your score % on this test over attempts{topperPct != null ? ', against the topper and class average' : ''}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={pastAttempts} margin={{ top: 5, right: 12, bottom: 0, left: -16 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                <YAxis domain={[0, 100]} unit="%" tick={{ fontSize: 12 }} />
+                <Tooltip formatter={(v) => [`${formatNumber(Number(v), 1)}%`, 'Score']} />
+                {topperPct != null && (
+                  <ReferenceLine y={topperPct} stroke="var(--success)" strokeDasharray="4 4"
+                                 label={{ value: 'Topper', position: 'right', fontSize: 10, fill: 'var(--success)' }} />
+                )}
+                {averagePct != null && (
+                  <ReferenceLine y={averagePct} stroke="var(--muted-foreground)" strokeDasharray="4 4"
+                                 label={{ value: 'Class avg', position: 'right', fontSize: 10, fill: 'var(--muted-foreground)' }} />
+                )}
+                <Line type="monotone" dataKey="percentage" stroke="var(--primary)" strokeWidth={2} dot={{ r: 4 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="mt-6">
         <CardHeader><CardTitle>Section analysis</CardTitle></CardHeader>
@@ -164,6 +212,12 @@ function ResultView({ r }: { r: Result }) {
         </CardContent>
       </Card>
 
+      {r.solutionsAvailable && (
+        <TimeInsights items={reviewItems} attemptId={r.attemptId}
+                      durationSeconds={(testInfo.data?.durationMinutes ?? 0) * 60}
+                      totalMarks={Number(r.maxScore)} />
+      )}
+
       {r.ranked && comparison.data && comparison.data.candidates > 1 && (
         <Card className="mt-6">
           <CardHeader>
@@ -193,7 +247,7 @@ function ResultView({ r }: { r: Result }) {
         <Card className="mt-6">
           <CardHeader>
             <CardTitle>Topic-wise performance</CardTitle>
-            <CardDescription>Weakest topics first</CardDescription>
+            <CardDescription>Weakest topics first · practise the ones in red</CardDescription>
           </CardHeader>
           <CardContent className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -203,7 +257,8 @@ function ResultView({ r }: { r: Result }) {
                   <th className="px-2 text-right font-medium">Questions</th>
                   <th className="px-2 text-right font-medium">Correct</th>
                   <th className="px-2 text-right font-medium">Score</th>
-                  <th className="pl-2 text-right font-medium">Accuracy</th>
+                  <th className="px-2 text-right font-medium">Accuracy</th>
+                  <th className="pl-2 text-right font-medium">Practise</th>
                 </tr>
               </thead>
               <tbody className="tabular-nums">
@@ -216,10 +271,17 @@ function ResultView({ r }: { r: Result }) {
                     <td className="px-2 text-right">{t.attempted} / {t.total}</td>
                     <td className="px-2 text-right">{t.correct}</td>
                     <td className="px-2 text-right">{formatNumber(t.score)} / {formatNumber(t.maxScore)}</td>
-                    <td className="pl-2 text-right">
+                    <td className="px-2 text-right">
                       <Badge variant={t.attempted === 0 ? 'muted' : Number(t.accuracy) < 50 ? 'destructive' : 'success'}>
                         {t.attempted === 0 ? '–' : `${formatNumber(t.accuracy, 0)}%`}
                       </Badge>
+                    </td>
+                    <td className="pl-2 text-right">
+                      <Button variant="ghost" size="sm" className="h-7 px-2 text-xs"
+                              onClick={() => navigate(`/series?q=${encodeURIComponent(t.topicName ?? '')}`)}
+                              title="Practise similar questions on this topic">
+                        <MessageCircleQuestion className="size-3.5" /> Practise
+                      </Button>
                     </td>
                   </tr>
                 ))}
@@ -229,20 +291,5 @@ function ResultView({ r }: { r: Result }) {
         </Card>
       )}
     </>
-  )
-}
-
-function Stat({ icon: Icon, label, value, hint }: { icon: typeof Award; label: string; value: string; hint?: string }) {
-  return (
-    <Card className="gap-2 py-5">
-      <CardContent className="flex items-start gap-3">
-        <div className="bg-primary/10 text-primary rounded-lg p-2"><Icon className="size-5" /></div>
-        <div className="min-w-0">
-          <p className="text-muted-foreground text-sm">{label}</p>
-          <p className="truncate text-xl font-semibold">{value}</p>
-          {hint && <p className="text-muted-foreground text-xs">{hint}</p>}
-        </div>
-      </CardContent>
-    </Card>
   )
 }

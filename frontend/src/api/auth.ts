@@ -1,5 +1,5 @@
 import { apiGet, apiPatch, apiPost } from '@/lib/api'
-import type { AuthResponse, User } from '@/types/domain'
+import type { AuthResponse, LoginResponse, User } from '@/types/domain'
 
 export interface LoginInput {
   identifier: string
@@ -23,7 +23,8 @@ export interface ProfileInput {
 }
 
 export const authApi = {
-  login: (input: LoginInput) => apiPost<AuthResponse>('/auth/login', input),
+  login: (input: LoginInput) => apiPost<LoginResponse>('/auth/login', input),
+  loginMfa: (mfaToken: string, code: string) => apiPost<AuthResponse>('/auth/login/mfa', { mfaToken, code }),
   register: (input: RegisterInput) => apiPost<AuthResponse>('/auth/register', input),
   logout: (refreshToken: string | null) => apiPost<void>('/auth/logout', { refreshToken }),
   forgotPassword: (email: string) => apiPost<void>('/auth/forgot-password', { email }),

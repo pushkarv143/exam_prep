@@ -3,7 +3,8 @@
  * timestamps as ISO-8601 strings (UTC).
  */
 
-export type Role = 'STUDENT' | 'TEACHER' | 'ADMIN'
+/** Role codes are data since Admin Portal 2.0 (built-ins: STUDENT, TEACHER, SUPER_ADMIN, CONTENT_MANAGER, ...). */
+export type Role = string
 export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'LOCKED'
 
 export interface User {
@@ -29,6 +30,16 @@ export interface AuthResponse {
   accessTokenExpiresAt: string
   refreshTokenExpiresAt: string
   user: User
+}
+
+/**
+ * First login step. With 2FA the server returns only a short-lived mfaToken; exchange it with
+ * the 6-digit code at /auth/login/mfa. Otherwise it is a normal AuthResponse.
+ */
+export type LoginResponse = AuthResponse | { mfaRequired: true; mfaToken: string }
+
+export function isMfaChallenge(r: LoginResponse): r is { mfaRequired: true; mfaToken: string } {
+  return 'mfaRequired' in r && r.mfaRequired === true
 }
 
 export interface Exam {

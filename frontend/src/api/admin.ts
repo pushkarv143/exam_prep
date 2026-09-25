@@ -1,5 +1,7 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { api, apiDelete, apiGet, apiPatch, apiPost, apiPut } from '@/lib/api'
+import { toast } from 'sonner'
+import { errorMessage } from '@/lib/errors'
+import { api, apiDelete, apiGet, apiPost, apiPut } from '@/lib/api'
 import type { ApiEnvelope, Page } from '@/types/api'
 import type {
   AddQuestionsResult, AdminDashboard, AdminResultRow, AdminSeries, AdminTest, AdminUser, Batch, CatalogTree,
@@ -8,6 +10,38 @@ import type {
   TestDetail, TestQuestion, TestSection, TestStats, TestStatus, UpdateTestRequest, UserStatus, ValidationReport,
 } from '@/types/admin'
 import type { Exam, Role } from '@/types/domain'
+
+/** Thrown when a maker-checker policy turned the action into an approval request (HTTP 202). */
+export class ApprovalPendingError extends Error {
+  constructor(public readonly requestId: string, message: string) {
+    super(message)
+    this.name = 'ApprovalPendingError'
+  }
+}
+
+/**
+ * POST for guarded admin actions. Sends an Idempotency-Key when asked, and turns a 202
+ * "approval required" answer into an {@link ApprovalPendingError}, so callers show
+ * "sent for approval" instead of "done".
+ */
+async function guardedPost<T>(url: string, body?: unknown, idempotent = false, reason?: string): Promise<T> {
+  const headers: Record<string, string> = { ...(idempotent ? { 'Idempotency-Key': crypto.randomUUID() } : {}), ...reasonHeader(reason) }
+  const res = await api.post<ApiEnvelope<unknown>>(url, body, { headers })
+  const data = res.data.data as { approvalRequired?: boolean; request?: { id: string }; message?: string }
+  if (res.status === 202 && data?.approvalRequired) {
+    throw new ApprovalPendingError(data.request?.id ?? '', data.message ?? 'Sent for approval')
+  }
+  return res.data.data as T
+}
+
+/** X-Reason header: the reason typed in a confirm dialog, stored in the audit log. */
+function reasonHeader(reason?: string): Record<string, string> {
+  return reason?.trim() ? { 'X-Reason': encodeURIComponent(reason.trim()) } : {}
+}
+
+async function deleteWithReason(url: string, reason?: string): Promise<void> {
+  await api.delete(url, { headers: reasonHeader(reason) })
+}
 
 /** Drops empty filter values so they are not sent as `?x=`. */
 function clean<T extends object>(params: T): Partial<T> {
@@ -20,16 +54,17 @@ export const adminApi = {
   tree: (examId: string) => apiGet<CatalogTree>(`/admin/catalog/exams/${examId}/tree`, { includeInactive: false }),
 
   // questions
-  questions: (f: QuestionFilter) => apiGet<Page<QuestionSummary>>('/admin/questions', clean({ ...f, sort: 'createdAt,desc' })),
+  questions: (f: QuestionFilter) => apiGet<Page<QuestionSummary>>('/admin/questions', clean({ ...f, sort: f.sort ?? 'createdAt,desc' })),
   question: (id: string) => apiGet<Question>(`/admin/questions/${id}`),
   createQuestion: (body: QuestionRequest) => apiPost<Question>('/admin/questions', body),
   updateQuestion: (id: string, body: QuestionRequest) => apiPut<Question>(`/admin/questions/${id}`, body),
-  archiveQuestion: (id: string) => apiDelete<void>(`/admin/questions/${id}`),
-  importQuestions: async (file: File, dryRun: boolean, autoCreateCatalog: boolean) => {
+  archiveQuestion: (id: string, reason?: string) => deleteWithReason(`/admin/questions/${id}`, reason),
+  importQuestions: async (file: File, dryRun: boolean, autoCreateCatalog: boolean,
+                          after: 'DRAFT' | 'SUBMIT' | 'PUBLISH' = 'DRAFT') => {
     const form = new FormData()
     form.append('file', file)
     const res = await api.post<ApiEnvelope<ImportReport>>('/admin/questions/import', form,
-      { params: { dryRun, autoCreateCatalog }, timeout: 120_000 })
+      { params: { dryRun, autoCreateCatalog, after }, timeout: 120_000 })
     return res.data.data as ImportReport
   },
   importTemplate: async () => {
@@ -50,13 +85,15 @@ export const adminApi = {
   test: (id: string) => apiGet<TestDetail>(`/admin/tests/${id}`),
   createTest: (body: CreateTestRequest) => apiPost<TestDetail>('/admin/tests', body),
   updateTest: (id: string, body: UpdateTestRequest) => apiPut<TestDetail>(`/admin/tests/${id}`, body),
-  deleteTest: (id: string) => apiDelete<void>(`/admin/tests/${id}`),
+  deleteTest: (id: string, reason?: string) => deleteWithReason(`/admin/tests/${id}`, reason),
   validateTest: (id: string) => apiGet<ValidationReport>(`/admin/tests/${id}/validation`),
-  testAction: (id: string, action: 'publish' | 'unpublish' | 'archive') => apiPost<AdminTest>(`/admin/tests/${id}/${action}`),
+  testAction: (id: string, action: 'publish' | 'unpublish' | 'archive', reason?: string) =>
+    guardedPost<AdminTest>(`/admin/tests/${id}/${action}`, undefined, false, reason),
   addSection: (id: string, body: SectionRequest) => apiPost<TestSection>(`/admin/tests/${id}/sections`, body),
   updateSection: (id: string, sectionId: string, body: SectionRequest) =>
     apiPut<TestSection>(`/admin/tests/${id}/sections/${sectionId}`, body),
-  deleteSection: (id: string, sectionId: string) => apiDelete<void>(`/admin/tests/${id}/sections/${sectionId}`),
+  deleteSection: (id: string, sectionId: string, reason?: string) =>
+    deleteWithReason(`/admin/tests/${id}/sections/${sectionId}`, reason),
   addQuestions: (id: string, sectionId: string, questionIds: string[]) =>
     apiPost<AddQuestionsResult>(`/admin/tests/${id}/sections/${sectionId}/questions`, { questionIds }),
   reorder: (id: string, sectionId: string, testQuestionIds: string[]) =>
@@ -74,8 +111,9 @@ export const adminApi = {
   testStats: (id: string) => apiGet<TestStats>(`/admin/tests/${id}/stats`),
   testResults: (id: string, page: number) =>
     apiGet<Page<AdminResultRow>>(`/admin/tests/${id}/results`, { page, size: 50, sort: 'score,desc' }),
-  finalizeRanks: (id: string) => apiPost<Record<string, number>>(`/admin/tests/${id}/rankings/finalize`),
-  reEvaluate: (attemptId: string) => apiPost<Record<string, boolean>>(`/admin/attempts/${attemptId}/re-evaluate`),
+  finalizeRanks: (id: string) => guardedPost<Record<string, number>>(`/admin/tests/${id}/rankings/finalize`, undefined, true),
+  reEvaluate: (attemptId: string, reason?: string) =>
+    guardedPost<Record<string, boolean>>(`/admin/attempts/${attemptId}/re-evaluate`, undefined, true, reason),
   dashboard: () => apiGet<AdminDashboard>('/admin/dashboard'),
 
   // series & batches
@@ -83,15 +121,20 @@ export const adminApi = {
     apiGet<Page<AdminSeries>>('/admin/series', clean({ ...p, sort: 'createdAt,desc' })),
   createSeries: (body: SeriesRequest) => apiPost<AdminSeries>('/admin/series', body),
   updateSeries: (id: string, body: SeriesRequest) => apiPut<AdminSeries>(`/admin/series/${id}`, body),
-  seriesAction: (id: string, action: 'publish' | 'unpublish' | 'archive') => apiPost<AdminSeries>(`/admin/series/${id}/${action}`),
+  seriesAction: (id: string, action: 'publish' | 'unpublish' | 'archive', reason?: string) =>
+    guardedPost<AdminSeries>(`/admin/series/${id}/${action}`, undefined, false, reason),
   batches: () => apiGet<Page<Batch>>('/admin/batches', { size: 200 }),
 
   // users
   users: (p: { q?: string; status?: UserStatus; role?: Role; page?: number }) =>
     apiGet<Page<AdminUser>>('/admin/users', clean({ ...p, size: 25 })),
   createUser: (body: CreateUserRequest) => apiPost<AdminUser>('/admin/users', body),
-  setUserStatus: (id: string, status: UserStatus) => apiPatch<AdminUser>(`/admin/users/${id}/status`, { status }),
-  setUserRoles: (id: string, roles: Role[]) => apiPut<AdminUser>(`/admin/users/${id}/roles`, { roles }),
+  setUserStatus: async (id: string, status: UserStatus, reason?: string) =>
+    (await api.patch<ApiEnvelope<AdminUser>>(`/admin/users/${id}/status`, { status },
+      { headers: reason ? { 'X-Reason': encodeURIComponent(reason) } : {} })).data.data as AdminUser,
+  setUserRoles: async (id: string, roles: Role[], subjectIds?: string[] | null, reason?: string) =>
+    (await api.put<ApiEnvelope<AdminUser>>(`/admin/users/${id}/roles`, { roles, subjectIds: subjectIds ?? null },
+      { headers: reason ? { 'X-Reason': encodeURIComponent(reason) } : {} })).data.data as AdminUser,
 }
 
 export const adminKeys = {
@@ -143,4 +186,13 @@ export function downloadBlob(blob: Blob, filename: string) {
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+/** Error handler for guarded admin actions: "sent for approval" is good news, not an error. */
+export function toastAdminError(e: unknown) {
+  if (e instanceof ApprovalPendingError) {
+    toast.info('Sent for approval', { description: 'A second person with the right permission must approve this. You can follow it under Approvals.' })
+  } else {
+    toast.error(errorMessage(e), { duration: 8000 })
+  }
 }

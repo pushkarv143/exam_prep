@@ -54,11 +54,23 @@ export function formatNumber(value: number | string | null | undefined, digits =
 
 export function initials(name: string | null | undefined): string {
   if (!name) return '?'
-  const parts = name.trim().split(/\s+/)
-  return ((parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase()
+  // "Sana (Support Agent)" → "S": ignore bracketed notes and words that don't start with a letter
+  const parts = name.replace(/\([^)]*\)?/g, ' ').trim().split(/\s+/).filter((p) => /^\p{L}/u.test(p))
+  if (parts.length === 0) return '?'
+  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase()
 }
 
 /** plural(1, 'test') → "1 test", plural(3, 'test') → "3 tests". */
 export function plural(n: number, word: string, pluralWord = word + 's'): string {
   return `${n} ${n === 1 ? word : pluralWord}`
+}
+
+/** Coarse relative time for SLA timers and timelines: "in 5 h", "2 d ago", "just now". */
+export function formatRelative(iso: string | null | undefined, now = Date.now()): string {
+  if (!iso) return ''
+  const diff = new Date(iso).getTime() - now
+  const minutes = Math.round(Math.abs(diff) / 60_000)
+  if (minutes < 1) return 'just now'
+  const text = minutes < 60 ? `${minutes} min` : minutes < 48 * 60 ? `${Math.round(minutes / 60)} h` : `${Math.round(minutes / 1440)} d`
+  return diff >= 0 ? `in ${text}` : `${text} ago`
 }

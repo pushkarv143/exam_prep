@@ -1,10 +1,14 @@
 /** Mirrors of the staff (admin/teacher) DTOs. Decimals arrive as JSON numbers. */
 import type { Exam, ExamPattern, Role, User, UserStatus } from './domain'
-import type { AnswerKey, MatchItem, Media, Option, QuestionType } from './exam'
+import type { AnswerKey, Language, MatchItem, Media, NumericFormat, Option, QuestionTranslation, QuestionType } from './exam'
 
 export type Difficulty = 'EASY' | 'MEDIUM' | 'HARD'
-export type Language = 'EN' | 'HI'
-export type QuestionStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED'
+export type { Language }
+export type QuestionStatus = 'DRAFT' | 'IN_REVIEW' | 'CHANGES_REQUESTED' | 'APPROVED' | 'PUBLISHED' | 'ARCHIVED'
+export type SourceType = 'PYQ' | 'COACHING' | 'BOOK' | 'ORIGINAL'
+export type CognitiveLevel = 'RECALL' | 'APPLY' | 'ANALYSE'
+export type QuestionAction = 'EDIT' | 'SUBMIT' | 'CLAIM' | 'ASSIGN' | 'REQUEST_CHANGES' | 'APPROVE' | 'PUBLISH'
+  | 'ARCHIVE' | 'RESTORE' | 'COMMENT'
 export type TestStatus = 'DRAFT' | 'PUBLISHED' | 'LIVE' | 'COMPLETED' | 'ARCHIVED'
 export type SeriesStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
 
@@ -36,6 +40,9 @@ export interface QuestionContent {
   matchLeft: MatchItem[]
   matchRight: MatchItem[]
   solution?: { text?: string; videoUrl?: string; images?: Media[] }
+  /** false keeps the option order fixed even when the test shuffles options */
+  shuffleOptions?: boolean
+  numericFormat?: NumericFormat
 }
 
 export interface QuestionSummary {
@@ -43,13 +50,36 @@ export interface QuestionSummary {
   type: QuestionType
   difficulty?: Difficulty
   language?: Language
+  /** Primary language first, then translated languages. */
+  languages?: Language[]
   topic: TopicPath
+  subTopic?: string
   textPreview?: string
   marks: number
   negativeMarks: number
   status: QuestionStatus
+  currentVersion: number
+  /** The live version tests use (absent if never published). */
+  publishedVersion?: number
+  reviewerId?: string
+  reviewerName?: string
+  reviewDueAt?: string
+  sourceType?: SourceType
+  year?: number
   tags: string[]
+  createdBy?: string
   createdAt: string
+  updatedAt?: string
+}
+
+export interface ReviewState {
+  reviewerId?: string
+  reviewerName?: string
+  submittedBy?: string
+  submittedByName?: string
+  requestedAt?: string
+  dueAt?: string
+  overdue: boolean
 }
 
 export interface Question {
@@ -58,19 +88,36 @@ export interface Question {
   difficulty?: Difficulty
   language?: Language
   topic: TopicPath
+  subTopic?: string
   parentId?: string
   content: QuestionContent
   answerKey: AnswerKey
+  translations?: Partial<Record<Language, QuestionTranslation>>
+  /** Per translated language: texts not translated yet, e.g. ["options.C", "solution"]. */
+  missingTranslations?: Partial<Record<Language, string[]>>
   marks: number
   negativeMarks: number
   status: QuestionStatus
+  sourceType?: SourceType
   source?: string
   year?: number
+  pyqShift?: string
+  expectedTimeSec?: number
+  cognitiveLevel?: CognitiveLevel
   tags: string[]
-  usedInPublishedTest: boolean
+  concepts?: string[]
+  currentVersion: number
+  publishedVersion?: number
+  publishedAt?: string
+  review?: ReviewState
+  openComments: number
+  usedInPublishedTests: number
   createdBy?: string
+  createdByName?: string
   createdAt: string
   updatedAt: string
+  /** What the current user may do now. */
+  actions: QuestionAction[]
 }
 
 export interface QuestionRequest {
@@ -78,15 +125,24 @@ export interface QuestionRequest {
   difficulty?: Difficulty
   language?: Language
   topicId: string
+  subTopic?: string | null
   parentId?: string | null
   content: QuestionContent
   answerKey?: AnswerKey
+  translations?: Partial<Record<Language, QuestionTranslation>>
   marks?: number | null
   negativeMarks?: number | null
-  status?: QuestionStatus
+  sourceType?: SourceType | null
   source?: string | null
   year?: number | null
+  pyqShift?: string | null
+  expectedTimeSec?: number | null
+  cognitiveLevel?: CognitiveLevel | null
   tags?: string[]
+  concepts?: string[]
+  /** The version the editor loaded; a stale one is rejected with QUESTION_VERSION_CONFLICT. */
+  baseVersion?: number
+  changeNote?: string
 }
 
 export interface QuestionFilter {
@@ -97,10 +153,44 @@ export interface QuestionFilter {
   type?: QuestionType
   difficulty?: Difficulty
   status?: QuestionStatus
+  /** Only questions tests can use (a published version exists, not archived). */
+  live?: boolean
+  translated?: Language
+  sourceType?: SourceType
+  cognitiveLevel?: CognitiveLevel
+  tag?: string
+  concept?: string
   q?: string
   mine?: boolean
+  /** "me", "none" or a user id (review queues) */
+  reviewer?: string
+  overdue?: boolean
+  sort?: string
   page?: number
   size?: number
+}
+
+/** A saved version of a question (the snapshot stored in question_versions). */
+export interface QuestionSnapshot {
+  type: QuestionType
+  difficulty?: Difficulty
+  language?: Language
+  topicId?: string
+  subTopic?: string
+  parentId?: string
+  content: QuestionContent
+  answerKey: AnswerKey
+  translations?: Partial<Record<Language, QuestionTranslation>>
+  marks?: number
+  negativeMarks?: number
+  sourceType?: SourceType
+  source?: string
+  year?: number
+  pyqShift?: string
+  expectedTimeSec?: number
+  cognitiveLevel?: CognitiveLevel
+  tags?: string[]
+  concepts?: string[]
 }
 
 export interface ImportReport {
@@ -147,6 +237,9 @@ export interface TestQuestion {
   marks: number
   negativeMarks: number
   partialMarking: boolean
+  /** The pinned question version; compare with question.publishedVersion. */
+  questionVersion: number
+  passageVersion?: number
   question: QuestionSummary
 }
 

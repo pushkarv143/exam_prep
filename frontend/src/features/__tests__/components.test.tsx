@@ -44,15 +44,15 @@ describe('TestList', () => {
 
   it('offers the attempt only for accessible tests', () => {
     wrap(<TestList tests={tests} signedIn />)
-    expect(screen.getByRole('link', { name: 'Attempt' })).toHaveAttribute('href', '/tests/t1')
-    expect(screen.getByText('Locked')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Start' })).toHaveAttribute('href', '/tests/t1')
+    expect(screen.getByText('Enroll in this series to unlock')).toBeInTheDocument()
     expect(screen.getByText('3 h')).toBeInTheDocument()
   })
 
   it('asks anonymous visitors to log in', () => {
     wrap(<TestList tests={tests} signedIn={false} />)
     expect(screen.getByRole('link', { name: 'Log in to attempt' })).toBeInTheDocument()
-    expect(screen.getByText('Enroll to unlock')).toBeInTheDocument()
+    expect(screen.getByText('Enroll in this series to unlock')).toBeInTheDocument()
   })
 })
 

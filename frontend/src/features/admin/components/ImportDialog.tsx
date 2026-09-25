@@ -1,8 +1,11 @@
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, Download, FileSpreadsheet, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { adminApi, downloadBlob } from '@/api/admin'
+import { contentApi, contentKeys } from '@/api/content'
+import { usePermissions } from '@/api/portal'
+import { NativeSelect } from '@/components/ui/native-select'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -19,10 +22,14 @@ export function ImportDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   const qc = useQueryClient()
   const [file, setFile] = useState<File | null>(null)
   const [autoCreate, setAutoCreate] = useState(false)
+  const [after, setAfter] = useState<'DRAFT' | 'SUBMIT' | 'PUBLISH'>('DRAFT')
+  const { can } = usePermissions()
+  const settings = useQuery({ queryKey: contentKeys.settings, queryFn: contentApi.settings, enabled: open })
+  const canPublishDirectly = can('question.publish') && settings.data?.reviewRequired === false
   const [report, setReport] = useState<ImportReport | null>(null)
 
   const run = useMutation({
-    mutationFn: (dryRun: boolean) => adminApi.importQuestions(file!, dryRun, autoCreate),
+    mutationFn: (dryRun: boolean) => adminApi.importQuestions(file!, dryRun, autoCreate, after),
     onSuccess: (r) => {
       setReport(r)
       if (!r.dryRun && r.importedRows > 0) {
@@ -68,6 +75,16 @@ export function ImportDialog({ open, onOpenChange }: { open: boolean; onOpenChan
             <Checkbox checked={autoCreate} onCheckedChange={setAutoCreate} className="mt-0.5" />
             Create missing chapters and topics automatically (exams and subjects must already exist)
           </label>
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <label htmlFor="import-after" className="font-medium">After import</label>
+            <NativeSelect id="import-after" className="h-8 w-auto" value={after}
+                          onChange={(e) => setAfter(e.target.value as 'DRAFT' | 'SUBMIT' | 'PUBLISH')}>
+              <option value="DRAFT">Keep as drafts</option>
+              <option value="SUBMIT">Submit for review (unassigned queue)</option>
+              {canPublishDirectly && <option value="PUBLISH">Publish right away</option>}
+            </NativeSelect>
+          </div>
+          <p className="text-muted-foreground text-xs">Optional Hindi columns: questionTextHi, optionAHi…optionDHi, solutionTextHi. New metadata: subTopic, expectedTimeSec, cognitiveLevel, sourceType, shift, concepts.</p>
 
           {report && (
             <div className="rounded-lg border p-3 text-sm" role="status">

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Search } from 'lucide-react'
+import { Search, X } from 'lucide-react'
 import { useExams } from '@/api/catalog'
 import { useSeriesList } from '@/api/series'
 import { Pagination } from '@/components/common/Pagination'
@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { NativeSelect } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { SeriesCard } from './SeriesCard'
+import { addRecentSearch, clearRecentSearches, getRecentSearches } from './recentSearches'
 
 const PAGE_SIZE = 12
 
@@ -19,6 +20,8 @@ export default function SeriesListPage() {
   const type = params.get('type') ?? ''
   const page = Math.max(0, Number(params.get('page') ?? '1') - 1)
   const [search, setSearch] = useState(params.get('q') ?? '')
+  const [recent, setRecent] = useState<string[]>(getRecentSearches)
+  const [focused, setFocused] = useState(false)
 
   const update = (patch: Record<string, string>) => {
     const next = new URLSearchParams(params)
@@ -27,10 +30,20 @@ export default function SeriesListPage() {
     setParams(next, { replace: true })
   }
 
+  const commitSearch = (term: string) => {
+    setSearch(term)
+    update({ q: term.trim() })
+    if (term.trim()) setRecent(addRecentSearch(term))
+  }
+
   // Debounce typing, so each keystroke does not fire a request.
   useEffect(() => {
     const t = setTimeout(() => {
-      if ((params.get('q') ?? '') !== search.trim()) update({ q: search.trim() })
+      const term = search.trim()
+      if ((params.get('q') ?? '') !== term) {
+        update({ q: term })
+        if (term) setRecent(addRecentSearch(term))
+      }
     }, 350)
     return () => clearTimeout(t)
   }, [search])
@@ -56,7 +69,30 @@ export default function SeriesListPage() {
         <div className="relative">
           <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
           <Input className="pl-9" placeholder="Search test series" value={search} aria-label="Search test series"
-                 onChange={(e) => setSearch(e.target.value)} />
+                 onChange={(e) => setSearch(e.target.value)}
+                 onFocus={() => setFocused(true)} onBlur={() => setTimeout(() => setFocused(false), 150)}
+                 onKeyDown={(e) => { if (e.key === 'Enter') commitSearch(search) }} />
+          {search && (
+            <button type="button" aria-label="Clear search" onClick={() => commitSearch('')}
+                    className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 p-1">
+              <X className="size-4" />
+            </button>
+          )}
+          {focused && !search && recent.length > 0 && (
+            <div className="bg-popover absolute z-20 mt-1 w-full rounded-md border p-2 shadow-md">
+              <div className="mb-1 flex items-center justify-between px-1">
+                <span className="text-muted-foreground text-xs font-medium">Recent searches</span>
+                <button type="button" className="text-muted-foreground hover:text-foreground text-xs"
+                        onMouseDown={(e) => { e.preventDefault(); setRecent(clearRecentSearches()) }}>Clear</button>
+              </div>
+              {recent.map((r) => (
+                <button key={r} type="button" onMouseDown={(e) => { e.preventDefault(); commitSearch(r) }}
+                        className="hover:bg-accent flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm">
+                  <Search className="text-muted-foreground size-3.5" /> {r}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <NativeSelect value={exam} onChange={(e) => update({ exam: e.target.value })} aria-label="Exam">
           <option value="">All exams</option>

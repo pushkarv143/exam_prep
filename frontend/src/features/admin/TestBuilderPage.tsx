@@ -6,7 +6,9 @@ import {
   Trash2, Wand2, XCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { adminApi, adminKeys } from '@/api/admin'
+import { adminApi, adminKeys, toastAdminError } from '@/api/admin'
+import { contentApi } from '@/api/content'
+import { useConfirm } from '@/components/common/ConfirmDialog'
 import { MathText } from '@/components/common/MathText'
 import { ErrorState, PageLoader } from '@/components/common/States'
 import { PageHeader } from '@/components/layout/Layouts'
@@ -37,28 +39,41 @@ export default function TestBuilderPage() {
   const qc = useQueryClient()
   const detail = useQuery({ queryKey: adminKeys.test(testId), queryFn: () => adminApi.test(testId) })
   const validation = useQuery({ queryKey: adminKeys.validation(testId), queryFn: () => adminApi.validateTest(testId) })
+  // Tests pin question versions; a newer published version is offered, never applied silently.
+  const outdated = (detail.data?.sections ?? []).flatMap((s) => s.questions)
+    .filter((tq) => tq.question?.publishedVersion != null && tq.question.publishedVersion > tq.questionVersion).length
+  const updateVersions = useMutation({
+    mutationFn: () => contentApi.updateTestVersions(testId),
+    onSuccess: (r) => {
+      toast.success(r.updated ? `${r.updated} question(s) now use their latest version` : 'Already up to date')
+      void qc.invalidateQueries({ queryKey: adminKeys.test(testId) })
+      void qc.invalidateQueries({ queryKey: adminKeys.validation(testId) })
+    },
+    onError: toastAdminError,
+  })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [patternOpen, setPatternOpen] = useState(false)
   const [modal, setModal] = useState<SectionModal>(null)
   const [editing, setEditing] = useState<TestQuestion | null>(null)
+  const confirm = useConfirm()
 
   const refresh = () => qc.invalidateQueries({ queryKey: ['admin', 'test', testId] })
   const action = useMutation({
-    mutationFn: (a: 'publish' | 'unpublish' | 'archive') => adminApi.testAction(testId, a),
-    onSuccess: (_, a) => {
+    mutationFn: ({ a, reason }: { a: 'publish' | 'unpublish' | 'archive'; reason?: string }) => adminApi.testAction(testId, a, reason),
+    onSuccess: (_, { a }) => {
       toast.success(a === 'publish' ? 'Test published' : a === 'unpublish' ? 'Moved back to draft' : 'Test archived')
       void refresh()
       void qc.invalidateQueries({ queryKey: ['admin', 'tests'] })
     },
-    onError: (e) => toast.error(errorMessage(e), { duration: 8000 }),
+    onError: toastAdminError,
   })
   const remove = useMutation({
-    mutationFn: () => adminApi.deleteTest(testId),
+    mutationFn: (reason: string) => adminApi.deleteTest(testId, reason),
     onSuccess: () => { toast.success('Test deleted'); void qc.invalidateQueries({ queryKey: ['admin', 'tests'] }); navigate('/admin/tests') },
     onError: (e) => toast.error(errorMessage(e)),
   })
   const deleteSection = useMutation({
-    mutationFn: (sectionId: string) => adminApi.deleteSection(testId, sectionId),
+    mutationFn: ({ sectionId, reason }: { sectionId: string; reason: string }) => adminApi.deleteSection(testId, sectionId, reason),
     onSuccess: () => { toast.success('Section deleted'); void refresh() },
     onError: (e) => toast.error(errorMessage(e)),
   })
@@ -87,19 +102,31 @@ export default function TestBuilderPage() {
             <Button variant="outline" onClick={() => setSettingsOpen(true)}><Settings /> Settings</Button>
             {test.status !== 'DRAFT' && <Button variant="outline" asChild><Link to={`/admin/tests/${test.id}/stats`}><BarChart3 /> Stats</Link></Button>}
             {editable && (
-              <Button disabled={!validation.data?.publishable} loading={action.isPending && action.variables === 'publish'}
-                      onClick={() => action.mutate('publish')}>Publish</Button>
+              <Button disabled={!validation.data?.publishable} loading={action.isPending && action.variables?.a === 'publish'}
+                      onClick={async () => {
+                        const r = await confirm({ title: 'Publish "' + test.title + '"?', reason: 'optional', confirmText: 'Publish',
+                          description: 'Students can see and attempt it once it opens. This may need a second person to approve.' })
+                        if (r) action.mutate({ a: 'publish', reason: r.reason })
+                      }}>Publish</Button>
             )}
             {test.status === 'PUBLISHED' && (
-              <Button variant="outline" loading={action.isPending && action.variables === 'unpublish'} onClick={() => action.mutate('unpublish')}>Unpublish</Button>
+              <Button variant="outline" loading={action.isPending && action.variables?.a === 'unpublish'} onClick={() => action.mutate({ a: 'unpublish' })}>Unpublish</Button>
             )}
             {test.status !== 'ARCHIVED' && test.status !== 'DRAFT' && (
-              <Button variant="outline" loading={action.isPending && action.variables === 'archive'}
-                      onClick={() => { if (confirm('Archive this test? Students can no longer start it.')) action.mutate('archive') }}>Archive</Button>
+              <Button variant="outline" loading={action.isPending && action.variables?.a === 'archive'}
+                      onClick={async () => {
+                        const r = await confirm({ title: 'Archive this test?', destructive: true, reason: 'required',
+                          description: 'Students can no longer start it. Results already taken are kept.', confirmText: 'Archive' })
+                        if (r) action.mutate({ a: 'archive', reason: r.reason })
+                      }}>Archive</Button>
             )}
             {editable && (
               <Button variant="ghost" size="icon" aria-label="Delete test" loading={remove.isPending}
-                      onClick={() => { if (confirm('Delete this draft test permanently?')) remove.mutate() }}><Trash2 /></Button>
+                      onClick={async () => {
+                        const r = await confirm({ title: 'Delete this draft test?', destructive: true, reason: 'required',
+                          description: 'The test and its sections are removed permanently.', confirmText: 'Delete' })
+                        if (r) remove.mutate(r.reason)
+                      }}><Trash2 /></Button>
             )}
           </div>
         }
@@ -113,6 +140,16 @@ export default function TestBuilderPage() {
           {' · '}{test.maxAttempts} attempt(s)
         </span>
         {!editable && <span className="text-muted-foreground">· Unpublish the test to change its questions.</span>}
+        {outdated > 0 && (
+          <span className="text-warning ml-auto flex items-center gap-2">
+            {outdated} question{outdated > 1 ? 's have' : ' has'} a newer published version
+            {editable && (
+              <Button size="sm" variant="outline" loading={updateVersions.isPending} onClick={() => updateVersions.mutate()}>
+                Use latest versions
+              </Button>
+            )}
+          </span>
+        )}
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
@@ -125,7 +162,11 @@ export default function TestBuilderPage() {
                            onEdit={() => setModal({ kind: 'edit', section: s })}
                            onAdd={() => setModal({ kind: 'add', section: s })}
                            onGenerate={() => setModal({ kind: 'generate', section: s })}
-                           onDelete={() => { if (confirm(`Delete section "${s.name}" and its questions?`)) deleteSection.mutate(s.id) }}
+                           onDelete={async () => {
+                             const r = await confirm({ title: 'Delete section "' + s.name + '"?', destructive: true, reason: 'required',
+                               description: 'Its questions are removed from this test (they stay in the bank).', confirmText: 'Delete section' })
+                             if (r) deleteSection.mutate({ sectionId: s.id, reason: r.reason })
+                           }}
                            onEditQuestion={setEditing}
                            onRemoveQuestion={(tq) => removeQuestion.mutate(tq.id)} />
             )
@@ -236,6 +277,10 @@ function SectionCard({ testId, section, startNumber, editable, onEdit, onAdd, on
                     <Link to={`/admin/questions/${tq.questionId}`} className="line-clamp-1 hover:underline"><MathText as="span" text={tq.question?.textPreview || '(no text)'} /></Link>
                     <p className="text-muted-foreground text-xs">
                       {TYPE_LABEL[tq.question.type]} · {tq.question.topic.chapterName}{tq.question.difficulty ? ` · ${titleCase(tq.question.difficulty)}` : ''}
+                      {' · '}<span title="The version this test uses">v{tq.questionVersion}</span>
+                      {tq.question.publishedVersion != null && tq.question.publishedVersion > tq.questionVersion && (
+                        <span className="text-warning"> (v{tq.question.publishedVersion} available)</span>
+                      )}
                     </p>
                   </div>
                   <span className="shrink-0 tabular-nums">+{formatNumber(tq.marks)} / −{formatNumber(tq.negativeMarks)}{tq.partialMarking ? ' · partial' : ''}</span>

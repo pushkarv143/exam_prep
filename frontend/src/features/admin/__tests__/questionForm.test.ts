@@ -6,7 +6,7 @@ const base = () => ({ ...emptyQuestion(), examId: 'e', subjectId: 's', chapterId
 
 describe('question form', () => {
   it('requires a correct option for choice questions', () => {
-    const v = { ...base(), text: 'What is 2+2?', options: [{ id: 'A', text: '3', image: '' }, { id: 'B', text: '4', image: '' }] }
+    const v = { ...base(), text: 'What is 2+2?', options: [{ id: 'A', text: '3', image: '', pinned: false }, { id: 'B', text: '4', image: '', pinned: false }] }
     const r = questionSchema.safeParse(v)
     expect(r.success).toBe(false)
     expect(r.error?.issues.some((i) => i.path[0] === 'correct')).toBe(true)
@@ -14,7 +14,7 @@ describe('question form', () => {
   })
 
   it('allows exactly one correct option for single-correct', () => {
-    const v = { ...base(), text: 'x', options: [{ id: 'A', text: '1', image: '' }, { id: 'B', text: '2', image: '' }], correct: ['A', 'B'] }
+    const v = { ...base(), text: 'x', options: [{ id: 'A', text: '1', image: '', pinned: false }, { id: 'B', text: '2', image: '', pinned: false }], correct: ['A', 'B'] }
     expect(questionSchema.safeParse(v).success).toBe(false)
     expect(questionSchema.safeParse({ ...v, type: 'MULTIPLE_CORRECT' }).success).toBe(true)
   })

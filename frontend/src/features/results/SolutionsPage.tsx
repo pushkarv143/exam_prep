@@ -1,20 +1,26 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Check, Clock, PlayCircle, X } from 'lucide-react'
 import { attemptsApi } from '@/api/attempts'
 import { MathText } from '@/components/common/MathText'
 import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
+import { ZoomableImage } from '@/components/common/ZoomableImage'
 import { PageHeader } from '@/components/layout/Layouts'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { formatClock, formatNumber } from '@/lib/format'
+import { LanguageSwitch } from '@/components/common/LanguageSwitch'
+import { localize, paperLanguages } from '@/lib/localize'
 import { cn } from '@/lib/utils'
+import { useQuestionLanguage } from '@/store/language'
 import type { Passage, ReviewItem } from '@/types/exam'
-import { resultKeys } from './ResultPage'
+import { resultKeys } from './resultColors'
+import { AskDoubtButton } from './components/AskDoubtButton'
 
 type Filter = 'ALL' | 'CORRECT' | 'INCORRECT' | 'PARTIAL' | 'UNATTEMPTED' | 'MARKED'
+const FILTER_KEYS: Filter[] = ['ALL', 'CORRECT', 'INCORRECT', 'PARTIAL', 'UNATTEMPTED', 'MARKED']
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: 'ALL', label: 'All' },
@@ -40,9 +46,21 @@ function matches(q: ReviewItem, f: Filter) {
 
 export default function SolutionsPage() {
   const { attemptId = '' } = useParams()
-  const [filter, setFilter] = useState<Filter>('ALL')
-  const [sectionId, setSectionId] = useState<string>('ALL')
+  const [params, setParams] = useSearchParams()
+  const urlFilter = (params.get('filter')?.toUpperCase() ?? 'ALL') as Filter
+  const [filter, setFilterState] = useState<Filter>(FILTER_KEYS.includes(urlFilter) ? urlFilter : 'ALL')
+  const [sectionId, setSectionId] = useState<string>(params.get('section') ?? 'ALL')
   const review = useQuery({ queryKey: resultKeys.solutions(attemptId), queryFn: () => attemptsApi.solutions(attemptId) })
+  const result = useQuery({ queryKey: resultKeys.result(attemptId), queryFn: () => attemptsApi.result(attemptId) })
+  const testTitle = result.data?.testTitle ?? 'this test'
+
+  const setFilter = (f: Filter) => {
+    setFilterState(f)
+    // Keep the URL shareable/back-friendly without a full navigation.
+    const next = new URLSearchParams(params)
+    if (f === 'ALL') next.delete('filter'); else next.set('filter', f)
+    setParams(next, { replace: true })
+  }
 
   const visible = useMemo(() => {
     if (!review.data) return []
@@ -55,11 +73,17 @@ export default function SolutionsPage() {
   if (review.isError) return <ErrorState error={review.error} onRetry={() => review.refetch()} />
   if (review.isPending) return <PageLoader />
   const all = review.data.sections.flatMap((s) => s.questions)
+  const languages = paperLanguages(all)
 
   return (
     <>
       <PageHeader title="Solutions" description="Your answers, the correct answers and explanations"
-                  actions={<Button variant="outline" asChild><Link to={`/attempts/${attemptId}/result`}><ArrowLeft /> Back to result</Link></Button>} />
+                  actions={
+                    <div className="flex items-center gap-3">
+                      <LanguageSwitch languages={languages} />
+                      <Button variant="outline" asChild><Link to={`/attempts/${attemptId}/result`}><ArrowLeft /> Back to result</Link></Button>
+                    </div>
+                  } />
 
       <div className="bg-background/95 sticky top-0 z-10 -mx-1 mb-6 space-y-3 px-1 py-2 backdrop-blur">
         <div className="flex flex-wrap gap-2" role="tablist" aria-label="Sections">
@@ -90,7 +114,7 @@ export default function SolutionsPage() {
               <h2 className="mb-3 text-lg font-semibold">{s.name}</h2>
               <div className="space-y-4">
                 {s.questions.map((q) => (
-                  <ReviewCard key={q.questionId} q={q}
+                  <ReviewCard key={q.questionId} q={q} testTitle={testTitle}
                               passage={q.paragraphId ? review.data.passages[q.paragraphId] : undefined} />
                 ))}
               </div>
@@ -102,7 +126,12 @@ export default function SolutionsPage() {
   )
 }
 
-function ReviewCard({ q, passage }: { q: ReviewItem; passage?: Passage }) {
+function ReviewCard({ q: original, passage, testTitle }: { q: ReviewItem; passage?: Passage; testTitle: string }) {
+  const language = useQuestionLanguage((s) => s.language)
+  const q = localize(original, language)
+  const translated = (original.language ?? 'EN') !== language ? original.translations?.[language] : undefined
+  const solutionText = translated?.solution || q.solution?.text
+  const passageText = passage && (passage.language ?? 'EN') !== language ? passage.translations?.[language] ?? passage.text : passage?.text
   const o = OUTCOME[q.outcome]
   const awarded = Number(q.marksAwarded)
   return (
@@ -115,17 +144,18 @@ function ReviewCard({ q, passage }: { q: ReviewItem; passage?: Passage }) {
             {awarded > 0 ? '+' : ''}{formatNumber(awarded)} / {formatNumber(q.marks)}
           </span>
           <span className="text-muted-foreground ml-auto flex items-center gap-1 text-xs"><Clock className="size-3.5" /> {formatClock(q.timeSpentSeconds)}</span>
+          <AskDoubtButton testTitle={testTitle} questionNumber={q.number} questionText={q.text} />
         </div>
 
         {passage && (
           <details className="bg-muted/50 rounded-lg border p-3 text-sm">
             <summary className="cursor-pointer font-medium">Passage</summary>
-            <MathText text={passage.text} className="mt-2" />
+            <MathText text={passageText} className="mt-2" />
           </details>
         )}
         <MathText text={q.text} />
         {q.images.map((img) => (
-          <img key={img.url} src={img.url} alt={img.alt ?? 'Question figure'} loading="lazy" className="max-h-64 rounded border bg-white" />
+          <ZoomableImage key={img.url} src={img.url} alt={img.alt ?? 'Question figure'} />
         ))}
 
         {(q.type === 'SINGLE_CORRECT' || q.type === 'MULTIPLE_CORRECT') && (
@@ -139,7 +169,7 @@ function ReviewCard({ q, passage }: { q: ReviewItem; passage?: Passage }) {
                   <span className="grid size-6 shrink-0 place-items-center rounded-full border text-xs font-semibold">{i + 1}</span>
                   <span className="min-w-0 flex-1">
                     <MathText text={opt.text} as="span" />
-                    {opt.image && <img src={opt.image} alt={`Option ${i + 1}`} className="mt-2 max-h-32 rounded border" loading="lazy" />}
+                    {opt.image && <ZoomableImage src={opt.image} alt={`Option ${i + 1}`} thumbClassName="mt-2" className="max-h-32" />}
                   </span>
                   {correct && <Check className="text-success size-4 shrink-0" aria-label="Correct option" />}
                   {chosen && !correct && <X className="text-destructive size-4 shrink-0" aria-label="Your wrong choice" />}
@@ -178,13 +208,13 @@ function ReviewCard({ q, passage }: { q: ReviewItem; passage?: Passage }) {
           </table>
         )}
 
-        {(q.solution?.text || q.solution?.videoUrl || q.solution?.images?.length) && (
+        {(solutionText || q.solution?.videoUrl || q.solution?.images?.length) && (
           <div className="bg-accent/40 space-y-2 rounded-lg border p-4 text-sm">
             <p className="font-semibold">Solution</p>
-            {q.solution.text && <MathText text={q.solution.text} />}
-            {q.solution.images?.map((img) => <img key={img.url} src={img.url} alt={img.alt ?? 'Solution figure'} className="max-h-64 rounded border bg-white" loading="lazy" />)}
-            {q.solution.videoUrl && /^https?:\/\//.test(q.solution.videoUrl) && (
-              <a href={q.solution.videoUrl} target="_blank" rel="noopener noreferrer" className="text-primary inline-flex items-center gap-1 font-medium hover:underline">
+            {solutionText && <MathText text={solutionText} />}
+            {q.solution?.images?.map((img) => <ZoomableImage key={img.url} src={img.url} alt={img.alt ?? 'Solution figure'} />)}
+            {q.solution?.videoUrl && /^https?:\/\//.test(q.solution?.videoUrl) && (
+              <a href={q.solution?.videoUrl} target="_blank" rel="noopener noreferrer" className="text-primary inline-flex items-center gap-1 font-medium hover:underline">
                 <PlayCircle className="size-4" /> Watch video solution
               </a>
             )}

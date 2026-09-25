@@ -4,7 +4,8 @@ import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, RefreshCw, Trophy } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { toast } from 'sonner'
-import { adminApi, adminKeys } from '@/api/admin'
+import { adminApi, adminKeys, toastAdminError } from '@/api/admin'
+import { useConfirm } from '@/components/common/ConfirmDialog'
 import { MathText } from '@/components/common/MathText'
 import { Pagination } from '@/components/common/Pagination'
 import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
@@ -12,7 +13,6 @@ import { PageHeader } from '@/components/layout/Layouts'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { errorMessage } from '@/lib/errors'
 import { formatClock, formatDateTime, formatNumber } from '@/lib/format'
 import { hasRole, useAuthStore } from '@/store/auth'
 import type { QuestionStat } from '@/types/admin'
@@ -25,9 +25,10 @@ const FLAG: Record<NonNullable<QuestionStat['flag']>, { label: string; variant: 
 
 export default function TestStatsPage() {
   const { testId = '' } = useParams()
-  const admin = hasRole(useAuthStore((s) => s.user), 'ADMIN')
+  const admin = hasRole(useAuthStore((s) => s.user), 'SUPER_ADMIN')
   const qc = useQueryClient()
   const [page, setPage] = useState(0)
+  const confirm = useConfirm()
   const stats = useQuery({ queryKey: adminKeys.stats(testId), queryFn: () => adminApi.testStats(testId) })
   const results = useQuery({
     queryKey: adminKeys.results(testId, page), queryFn: () => adminApi.testResults(testId, page), placeholderData: keepPreviousData,
@@ -38,12 +39,12 @@ export default function TestStatsPage() {
       toast.success(`Final ranks computed for ${r.rankedCandidates ?? 0} candidates`)
       void qc.invalidateQueries({ queryKey: ['admin', 'test', testId] })
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: toastAdminError,
   })
   const reEvaluate = useMutation({
-    mutationFn: adminApi.reEvaluate,
+    mutationFn: ({ attemptId, reason }: { attemptId: string; reason: string }) => adminApi.reEvaluate(attemptId, reason),
     onSuccess: () => { toast.success('Re-evaluation queued'); setTimeout(() => void qc.invalidateQueries({ queryKey: ['admin', 'test', testId] }), 2000) },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: toastAdminError,
   })
 
   if (stats.isError) return <ErrorState error={stats.error} onRetry={() => stats.refetch()} />
@@ -158,7 +159,11 @@ export default function TestStatsPage() {
                         {admin && (
                           <td className="px-4 py-2 text-right">
                             <Button size="sm" variant="ghost" disabled={reEvaluate.isPending}
-                                    onClick={() => { if (confirm(`Re-evaluate ${r.studentName}'s attempt with the current answer key?`)) reEvaluate.mutate(r.attemptId) }}>
+                                    onClick={async () => {
+                                      const ok = await confirm({ title: 'Re-evaluate the attempt of ' + r.studentName + '?', reason: 'required',
+                                        description: 'It is scored again with the current answer key; rank and percentile may change.', confirmText: 'Re-evaluate' })
+                                      if (ok) reEvaluate.mutate({ attemptId: r.attemptId, reason: ok.reason })
+                                    }}>
                               <RefreshCw /> Re-evaluate
                             </Button>
                           </td>

@@ -46,7 +46,7 @@ export function QuestionPickerDialog({ test, section, inTest, open, onOpenChange
 
   const filter: QuestionFilter = {
     ...catalog, examId: test.examId, type: type || undefined, difficulty: difficulty || undefined,
-    status: 'ACTIVE', q: q || undefined, page, size: 15,
+    live: true, q: q || undefined, page, size: 15,
   }
   const questions = useAdminQuestions(filter, open)
 

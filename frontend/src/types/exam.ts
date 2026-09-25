@@ -5,8 +5,20 @@ export type AnswerState = 'NOT_VISITED' | 'NOT_ANSWERED' | 'ANSWERED' | 'MARKED_
 export type AttemptStatus = 'IN_PROGRESS' | 'SUBMITTED' | 'EVALUATED' | 'CANCELLED'
 
 export interface Media { url: string; alt?: string }
-export interface Option { id: string; text?: string; image?: string }
+/** `pinned`: keeps its position when options are shuffled (e.g. "None of these"). */
+export interface Option { id: string; text?: string; image?: string; pinned?: boolean }
 export interface MatchItem { id: string; text: string }
+
+export type Language = 'EN' | 'HI'
+export type NumericFormat = 'INTEGER' | 'DECIMAL'
+
+/** Student-visible text of a question in another language; option/match texts keyed by id. */
+export interface StudentTranslation {
+  text?: string
+  options?: Record<string, string>
+  matchLeft?: Record<string, string>
+  matchRight?: Record<string, string>
+}
 
 export interface StudentAnswer {
   options?: string[]
@@ -27,6 +39,12 @@ export interface PaperQuestion {
   options: Option[]
   matchLeft: MatchItem[]
   matchRight: MatchItem[]
+  /** Language of text/options; translations hold the others. */
+  language?: Language
+  translations?: Partial<Record<Language, StudentTranslation>>
+  /** False when the author keeps the option order fixed. */
+  shuffleOptions?: boolean
+  numericFormat?: NumericFormat
 }
 
 export interface PaperSection {
@@ -38,7 +56,13 @@ export interface PaperSection {
   questions: PaperQuestion[]
 }
 
-export interface Passage { id: string; text?: string; images: Media[] }
+export interface Passage {
+  id: string
+  text?: string
+  images: Media[]
+  language?: Language
+  translations?: Partial<Record<Language, string>>
+}
 
 export interface Paper {
   testId: string
@@ -206,11 +230,23 @@ export interface Result {
   solutionsAvailableAt?: string
 }
 
+export type PartialRule = 'JEE_ADVANCED' | 'PROPORTIONAL' | 'NONE'
+
+/** NUMERICAL: value (+ tolerance) or a min/max range. MULTIPLE_CORRECT: partial rule (absent = JEE Advanced). */
 export interface AnswerKey {
   options?: string[]
   value?: number
   tolerance?: number
   pairs?: Record<string, string>
+  min?: number
+  max?: number
+  partial?: PartialRule
+}
+
+/** A full translation (staff and solution review): student texts plus the solution. */
+export interface QuestionTranslation extends StudentTranslation {
+  paragraph?: string
+  solution?: string
 }
 
 export interface ReviewItem {
@@ -232,6 +268,8 @@ export interface ReviewItem {
   negativeMarks: number
   timeSpentSeconds: number
   solution?: { text?: string; videoUrl?: string; images?: Media[] }
+  language?: Language
+  translations?: Partial<Record<Language, QuestionTranslation>>
 }
 
 export interface SolutionReview {

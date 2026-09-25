@@ -1,6 +1,8 @@
 import { Suspense } from 'react'
 import { Link, Outlet, ScrollRestoration } from 'react-router-dom'
 import { PageLoader } from '@/components/common/States'
+import { PageTransition } from '@/components/common/PageTransition'
+import { BottomNav } from './BottomNav'
 import { Navbar } from './Navbar'
 
 function Footer() {
@@ -23,7 +25,7 @@ export function PublicLayout() {
     <div className="flex min-h-screen flex-col">
       <Navbar />
       <main className="flex-1">
-        <Suspense fallback={<PageLoader />}><Outlet /></Suspense>
+        <Suspense fallback={<PageLoader />}><PageTransition><Outlet /></PageTransition></Suspense>
       </main>
       <Footer />
       <ScrollRestoration />
@@ -36,9 +38,10 @@ export function AppLayout() {
   return (
     <div className="bg-muted/30 flex min-h-screen flex-col">
       <Navbar />
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
-        <Suspense fallback={<PageLoader />}><Outlet /></Suspense>
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 pb-24 sm:px-6 sm:py-8 md:pb-8">
+        <Suspense fallback={<PageLoader />}><PageTransition><Outlet /></PageTransition></Suspense>
       </main>
+      <BottomNav />
       <ScrollRestoration />
     </div>
   )

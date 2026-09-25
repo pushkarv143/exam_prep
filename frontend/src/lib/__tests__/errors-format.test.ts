@@ -56,6 +56,8 @@ describe('format', () => {
   it('builds initials', () => {
     expect(initials('Riya Sharma')).toBe('RS')
     expect(initials('madonna')).toBe('M')
+    expect(initials('Sana (Support Agent)')).toBe('S')
+    expect(initials('Chitra Rao (Content Manager)')).toBe('CR')
   })
 })
 

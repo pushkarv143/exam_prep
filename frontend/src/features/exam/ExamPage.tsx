@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
-import { AlertTriangle, ChevronLeft, ChevronRight, CloudOff, Grid3x3, Loader2, Maximize, Minimize } from 'lucide-react'
+import { AlertTriangle, ChevronLeft, ChevronRight, CloudOff, Grid3x3, Keyboard, Loader2, Maximize, Minimize, WifiOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { attemptsApi } from '@/api/attempts'
 import { ErrorState, PageLoader } from '@/components/common/States'
@@ -17,9 +17,12 @@ import { useAuthStore } from '@/store/auth'
 import type { AnswerState } from '@/types/exam'
 import { Palette, STATE_STYLE, StateBadge } from './components/Palette'
 import { QuestionPanel } from './components/QuestionPanel'
+import { LanguageSwitch } from '@/components/common/LanguageSwitch'
+import { paperLanguages } from '@/lib/localize'
 import {
   clearBackup, initExam, paletteState, remainingMs, setAnswer, setMarked, tickCurrent, useExamStore, visit,
 } from './examStore'
+import { clearActiveAttempt, saveActiveAttempt } from './activeAttempt'
 import { useAntiCheat } from './useAntiCheat'
 import { useAutosave } from './useAutosave'
 
@@ -40,6 +43,13 @@ export default function ExamPage() {
       return
     }
     initExam(session.data)
+    saveActiveAttempt({
+      attemptId: session.data.attemptId,
+      testId: session.data.testId,
+      title: session.data.paper.title,
+      deadlineMs: Date.parse(session.data.serverNow) + session.data.remainingSeconds * 1000,
+      savedAt: Date.now(),
+    })
     setReady(true)
   }, [session.data, attemptId, navigate])
 
@@ -58,18 +68,23 @@ function ExamScreen({ attemptId }: { attemptId: string }) {
   const saveState = useExamStore((s) => s.saveState)
   const answers = useExamStore((s) => s.answers)
   const question = flat[index]
+  const languages = useMemo(() => paperLanguages(flat), [flat])
 
   const [started, setStarted] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(!!document.fullscreenElement)
+  const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine)
+  const [resumeOpen, setResumeOpen] = useState(false)
+  const intentionalExit = useRef(false)
   const finishing = useRef(false)
 
   const goToResult = useCallback(() => {
     if (finishing.current) return
     finishing.current = true
     clearBackup(attemptId)
+    clearActiveAttempt(attemptId)
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined)
     void qc.invalidateQueries({ queryKey: ['my-attempts'] })
     navigate(`/attempts/${attemptId}/result`, { replace: true })
@@ -102,9 +117,24 @@ function ExamScreen({ attemptId }: { attemptId: string }) {
   }, [])
 
   useEffect(() => {
-    const onFs = () => setFullscreen(!!document.fullscreenElement)
+    const onFs = () => {
+      const isFs = !!document.fullscreenElement
+      setFullscreen(isFs)
+      // An unexpected drop out of full screen (e.g. Esc) — offer a calm way back, once.
+      if (!isFs && started && !finishing.current && !intentionalExit.current) setResumeOpen(true)
+      intentionalExit.current = false
+    }
     document.addEventListener('fullscreenchange', onFs)
     return () => document.removeEventListener('fullscreenchange', onFs)
+  }, [started])
+
+  // Network status drives the reconnect banner. Autosave keeps retrying in the background.
+  useEffect(() => {
+    const on = () => setOnline(true)
+    const off = () => setOnline(false)
+    window.addEventListener('online', on)
+    window.addEventListener('offline', off)
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off) }
   }, [])
 
   // Warn before closing the tab mid-test.
@@ -117,6 +147,7 @@ function ExamScreen({ attemptId }: { attemptId: string }) {
   }, [])
 
   const enterFullscreen = () => document.documentElement.requestFullscreen?.().catch(() => undefined)
+  const exitFullscreen = () => { intentionalExit.current = true; void document.exitFullscreen().catch(() => undefined) }
   const go = (i: number) => {
     if (i < 0 || i >= flat.length) return
     visit(i)
@@ -124,6 +155,28 @@ function ExamScreen({ attemptId }: { attemptId: string }) {
   }
   const qid = question.questionId
   const marked = answers[qid]?.marked ?? false
+
+  // Global shortcuts: ← / → navigate, Ctrl+Enter marks for review and advances.
+  // (Option keys 1–9 are handled inside the question panel.)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (confirmOpen || resumeOpen) return
+      if (e.ctrlKey && e.key === 'Enter') {
+        e.preventDefault()
+        setMarked(qid, !marked)
+        go(index + 1)
+        return
+      }
+      const el = document.activeElement
+      const typing = !!el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)
+      if (typing || e.ctrlKey || e.metaKey || e.altKey) return
+      if (e.key === 'ArrowRight') { e.preventDefault(); go(index + 1) }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); go(index - 1) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, qid, marked, confirmOpen, resumeOpen, flat.length])
 
   if (!started) {
     return (
@@ -134,6 +187,12 @@ function ExamScreen({ attemptId }: { attemptId: string }) {
             The test runs in full-screen mode. Leaving full screen or switching tabs is recorded. Your answers are
             saved automatically. If you get disconnected, simply reopen this page.
           </p>
+          {languages.length > 1 && (
+            <div className="bg-muted/50 flex items-center justify-center gap-3 rounded-lg border p-3">
+              <span className="text-sm font-medium">Question language</span>
+              <LanguageSwitch languages={languages} />
+            </div>
+          )}
           <Button size="lg" onClick={() => { void enterFullscreen(); setStarted(true) }}>
             <Maximize /> Enter full screen &amp; begin
           </Button>
@@ -153,17 +212,25 @@ function ExamScreen({ attemptId }: { attemptId: string }) {
           <p className="truncate font-semibold">{paper.title}</p>
           <p className="truncate text-xs opacity-80">Candidate: {user?.fullName}</p>
         </div>
+        <LanguageSwitch languages={languages} tone="onPrimary" className="hidden sm:flex" />
         <SaveIndicator state={saveState} />
         <Timer onExpire={() => void submit(true)} />
         <div className="hidden gap-1 sm:flex">
           <DarkModeToggle variant="secondary" />
           <ThemeMenu variant="secondary" />
         </div>
-        <Button variant="secondary" size="icon" onClick={() => (fullscreen ? void document.exitFullscreen() : void enterFullscreen())}
+        <Button variant="secondary" size="icon" onClick={() => (fullscreen ? exitFullscreen() : void enterFullscreen())}
                 aria-label={fullscreen ? 'Exit full screen' : 'Enter full screen'}>
           {fullscreen ? <Minimize /> : <Maximize />}
         </Button>
       </header>
+
+      {!online && (
+        <div className="flex items-center gap-2 bg-amber-500 px-4 py-2 text-sm font-medium text-amber-950" role="status" aria-live="polite">
+          <WifiOff className="size-4 shrink-0" />
+          <span className="flex-1">You’re offline. Your answers are saved on this device and will sync automatically when you reconnect. Keep going.</span>
+        </div>
+      )}
 
       {warning && (
         <div className="flex items-center gap-2 bg-amber-100 px-4 py-2 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100" role="alert">
@@ -216,6 +283,9 @@ function ExamScreen({ attemptId }: { attemptId: string }) {
           {marked ? 'Unmark review' : 'Mark for review & next'}
         </Button>
         <Button variant="outline" onClick={() => setAnswer(qid, null)}>Clear response</Button>
+        <span className="text-muted-foreground ml-2 hidden items-center gap-1.5 text-xs xl:flex" aria-hidden="true">
+          <Keyboard className="size-3.5" /> 1–4 options · ← → move · Ctrl+Enter mark &amp; next
+        </span>
         <div className="flex-1" />
         <Button variant="outline" size="icon" className="lg:hidden" aria-label="Open question palette"
                 onClick={() => setPaletteOpen(true)}><Grid3x3 /></Button>
@@ -227,6 +297,24 @@ function ExamScreen({ attemptId }: { attemptId: string }) {
 
       <SubmitDialog open={confirmOpen} onOpenChange={setConfirmOpen} submitting={submitting}
                     onConfirm={() => void submit(false)} />
+
+      <Dialog open={resumeOpen} onOpenChange={setResumeOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>You left full screen</DialogTitle>
+            <DialogDescription>
+              No problem — your test is still running and every answer is saved. You can jump back into full screen
+              for a distraction-free view, or keep going in this window.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResumeOpen(false)}>Stay in this window</Button>
+            <Button onClick={() => { setResumeOpen(false); void enterFullscreen() }}>
+              <Maximize /> Resume in full screen
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -234,10 +322,20 @@ function ExamScreen({ attemptId }: { attemptId: string }) {
 function Timer({ onExpire }: { onExpire: () => void }) {
   const [ms, setMs] = useState(remainingMs())
   const fired = useRef(false)
+  // Pre-seed with any thresholds already passed so resuming late doesn't spam old warnings.
+  const announced = useRef<Set<number>>(new Set(
+    [15, 5, 1].filter((m) => remainingMs() <= m * 60_000),
+  ))
   useEffect(() => {
     const t = setInterval(() => {
       const left = remainingMs()
       setMs(left)
+      for (const m of [15, 5, 1]) {
+        if (left <= m * 60_000 && left > 0 && !announced.current.has(m)) {
+          announced.current.add(m)
+          toast.warning(`${m} minute${m > 1 ? 's' : ''} left`, { duration: 6000 })
+        }
+      }
       if (left <= 0 && !fired.current) {
         fired.current = true
         onExpire()
@@ -246,10 +344,15 @@ function Timer({ onExpire }: { onExpire: () => void }) {
     return () => clearInterval(t)
   }, [onExpire])
   const seconds = Math.ceil(ms / 1000)
+  const tier = seconds <= 60 ? 'critical' : seconds <= 300 ? 'urgent' : seconds <= 900 ? 'warn' : 'normal'
   return (
-    <div className={cn('rounded-md px-3 py-1 text-center font-mono tabular-nums',
-      seconds <= 300 ? 'animate-pulse bg-red-600 text-white' : 'bg-white/15')}
-         role="timer" aria-label="Time left">
+    <div className={cn('rounded-md px-3 py-1 text-center font-mono tabular-nums transition-colors',
+      tier === 'critical' && 'animate-pulse bg-red-600 text-white ring-2 ring-red-300',
+      tier === 'urgent' && 'bg-red-600 text-white',
+      tier === 'warn' && 'bg-amber-400 text-amber-950',
+      tier === 'normal' && 'bg-white/15')}
+         role="timer" aria-label="Time left"
+         title={tier === 'normal' ? undefined : 'Time is running low'}>
       <span className="block text-[10px] tracking-wide uppercase opacity-80">Time left</span>
       <span className="text-lg font-semibold">{formatClock(seconds)}</span>
     </div>

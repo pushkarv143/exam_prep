@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { ForbiddenPage } from '@/features/errors/ErrorPages'
-import { hasRole, useAuthStore } from '@/store/auth'
+import { hasRole, isStaff, useAuthStore } from '@/store/auth'
 import type { Role } from '@/types/domain'
 
 /**
@@ -10,7 +10,7 @@ import type { Role } from '@/types/domain'
  *
  * The UI check is for UX only. The API enforces every rule again server-side.
  */
-export function RequireAuth({ roles, children }: { roles?: Role[]; children?: ReactNode }) {
+export function RequireAuth({ roles, staff, children }: { roles?: Role[]; staff?: boolean; children?: ReactNode }) {
   const token = useAuthStore((s) => s.accessToken)
   const user = useAuthStore((s) => s.user)
   const location = useLocation()
@@ -19,7 +19,7 @@ export function RequireAuth({ roles, children }: { roles?: Role[]; children?: Re
     const next = encodeURIComponent(location.pathname + location.search)
     return <Navigate to={`/login?next=${next}`} replace />
   }
-  if (roles && !hasRole(user, ...roles)) {
+  if ((roles && !hasRole(user, ...roles)) || (staff && !isStaff(user))) {
     return <ForbiddenPage />
   }
   return children ?? <Outlet />

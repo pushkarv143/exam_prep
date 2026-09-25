@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom'
 import { ExternalLink, Pencil, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { adminApi, adminKeys, useAdminExams } from '@/api/admin'
+import { useConfirm } from '@/components/common/ConfirmDialog'
 import { FormField } from '@/components/common/FormField'
 import { Pagination } from '@/components/common/Pagination'
 import { EmptyState, ErrorState } from '@/components/common/States'
@@ -31,6 +32,7 @@ import { toLocalInput } from './components/TestSettingsDialog'
 
 export default function SeriesAdminPage() {
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const exams = useAdminExams()
   const [status, setStatus] = useState<SeriesStatus | ''>('')
   const [q, setQ] = useState('')
@@ -41,7 +43,8 @@ export default function SeriesAdminPage() {
   const examName = (id: string) => exams.data?.find((e) => e.id === id)?.name ?? ''
 
   const action = useMutation({
-    mutationFn: ({ id, a }: { id: string; a: 'publish' | 'unpublish' | 'archive' }) => adminApi.seriesAction(id, a),
+    mutationFn: ({ id, a, reason }: { id: string; a: 'publish' | 'unpublish' | 'archive'; reason?: string }) =>
+      adminApi.seriesAction(id, a, reason),
     onSuccess: () => { toast.success('Series updated'); void qc.invalidateQueries({ queryKey: ['admin', 'series'] }) },
     onError: (e) => toast.error(errorMessage(e)),
   })
@@ -100,7 +103,11 @@ export default function SeriesAdminPage() {
                               {s.status === 'PUBLISHED' && <Button size="sm" variant="outline" disabled={action.isPending} onClick={() => action.mutate({ id: s.id, a: 'unpublish' })}>Unpublish</Button>}
                               {s.status !== 'ARCHIVED' && (
                                 <Button size="sm" variant="ghost" disabled={action.isPending}
-                                        onClick={() => { if (confirm('Archive this series? Enrolled students keep access.')) action.mutate({ id: s.id, a: 'archive' }) }}>Archive</Button>
+                                        onClick={async () => {
+                                          const r = await confirm({ title: 'Archive "' + s.name + '"?', destructive: true, reason: 'required',
+                                            description: 'It is no longer sold or listed. Enrolled students keep access.', confirmText: 'Archive' })
+                                          if (r) action.mutate({ id: s.id, a: 'archive', reason: r.reason })
+                                        }}>Archive</Button>
                               )}
                             </div>
                           </td>

@@ -63,4 +63,7 @@ export function hasRole(user: User | null, ...roles: Role[]): boolean {
   return !!user && user.roles.some((r) => roles.includes(r))
 }
 
-export const isStaff = (user: User | null) => hasRole(user, 'ADMIN', 'TEACHER')
+/** Any role other than STUDENT is a staff role. What staff may do is decided by permissions (GET /me/access). */
+export const isStaff = (user: User | null) => !!user && user.roles.some((r) => r !== 'STUDENT')
+
+export const isSuperAdmin = (user: User | null) => hasRole(user, 'SUPER_ADMIN')

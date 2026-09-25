@@ -1,21 +1,28 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { MathText } from '@/components/common/MathText'
+import { ZoomableImage } from '@/components/common/ZoomableImage'
 import { Badge } from '@/components/ui/badge'
+import { localize } from '@/lib/localize'
 import { cn } from '@/lib/utils'
+import { useQuestionLanguage } from '@/store/language'
 import type { StudentAnswer } from '@/types/exam'
 import {
   currentSectionAnsweredCount, hasAnswer, setAnswer, useExamStore, type FlatQuestion,
 } from '../examStore'
 
 const NUMERIC_TYPING = /^-?\d{0,10}(\.\d{0,6})?$/
+const INTEGER_TYPING = /^-?\d{0,10}$/
 
 /** Renders the current question and its answer input for all 4 answerable types. */
-export function QuestionPanel({ question }: { question: FlatQuestion }) {
+export function QuestionPanel({ question: original }: { question: FlatQuestion }) {
+  const language = useQuestionLanguage((s) => s.language)
+  const question = localize(original, language)
   const local = useExamStore((s) => s.answers[question.questionId])
   const paper = useExamStore((s) => s.paper)!
   const section = paper.sections[question.sectionIndex]
   const passage = question.paragraphId ? paper.passages[question.paragraphId] : undefined
+  const passageText = passage && (passage.language ?? 'EN') !== language ? passage.translations?.[language] ?? passage.text : passage?.text
   const answer = local?.answer ?? null
 
   /** Enforces "attempt any N" before touching state (the server enforces it too). */
@@ -45,7 +52,7 @@ export function QuestionPanel({ question }: { question: FlatQuestion }) {
       {passage && (
         <div className="bg-muted/50 rounded-lg border p-4 text-sm">
           <p className="text-muted-foreground mb-2 text-xs font-semibold uppercase">Read the passage</p>
-          <MathText text={passage.text} />
+          <MathText text={passageText} />
           <Images images={passage.images} />
         </div>
       )}
@@ -58,7 +65,7 @@ export function QuestionPanel({ question }: { question: FlatQuestion }) {
                      onChange={(opts) => change(opts.length ? { options: opts } : null)} />
       )}
       {question.type === 'NUMERICAL' && (
-        <NumericInput key={question.questionId} value={answer?.value ?? ''}
+        <NumericInput key={question.questionId} value={answer?.value ?? ''} integer={question.numericFormat === 'INTEGER'}
                       onChange={(v) => change(v.trim() ? { value: v.trim() } : null)} />
       )}
       {question.type === 'MATCH' && (
@@ -79,8 +86,8 @@ function Images({ images }: { images?: { url: string; alt?: string }[] }) {
   return (
     <div className="flex flex-wrap gap-3">
       {images.map((img) => (
-        <img key={img.url} src={img.url} alt={img.alt ?? 'Question figure'} loading="lazy"
-             className="max-h-72 max-w-full rounded border bg-white object-contain" />
+        <ZoomableImage key={img.url} src={img.url} alt={img.alt ?? 'Question figure'}
+                       className="max-h-72 max-w-full object-contain" />
       ))}
     </div>
   )
@@ -94,12 +101,30 @@ function ChoiceInput({ question, selected, onChange }:
     if (multi) onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id])
     else onChange(selected.includes(id) ? [] : [id])
   }
+
+  // Keyboard: number keys 1-9 pick the matching option (like NTA). Ignored while typing elsewhere.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      const el = document.activeElement
+      if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return
+      const n = Number(e.key)
+      if (!Number.isInteger(n) || n < 1 || n > question.options.length) return
+      e.preventDefault()
+      toggle(question.options[n - 1].id)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [question.options, selected, multi])
+
   return (
     <div className="grid gap-3" role={multi ? 'group' : 'radiogroup'} aria-label="Options">
       {question.options.map((o, i) => {
         const checked = selected.includes(o.id)
         return (
           <button key={o.id} type="button" role={multi ? 'checkbox' : 'radio'} aria-checked={checked}
+                  aria-keyshortcuts={`${i + 1}`}
                   onClick={() => toggle(o.id)}
                   className={cn('flex w-full items-start gap-3 rounded-lg border p-3 text-left transition-colors',
                     checked ? 'border-primary bg-accent' : 'hover:bg-muted/60')}>
@@ -110,7 +135,7 @@ function ChoiceInput({ question, selected, onChange }:
             </span>
             <span className="min-w-0 flex-1">
               <MathText text={o.text} as="span" />
-              {o.image && <img src={o.image} alt={`Option ${i + 1}`} className="mt-2 max-h-40 rounded border" loading="lazy" />}
+              {o.image && <ZoomableImage src={o.image} alt={`Option ${i + 1}`} className="mt-2 max-h-40" />}
             </span>
           </button>
         )
@@ -121,21 +146,23 @@ function ChoiceInput({ question, selected, onChange }:
 }
 
 /** Numeric answer box. Local text state allows transient inputs like "-" or "2." while typing. */
-function NumericInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function NumericInput({ value, onChange, integer }: { value: string; onChange: (v: string) => void; integer?: boolean }) {
   const [text, setText] = useState(value)
   useEffect(() => setText(value), [value])
   return (
     <div className="max-w-xs space-y-2">
       <label htmlFor="numeric-answer" className="text-sm font-medium">Your answer</label>
-      <input id="numeric-answer" inputMode="decimal" autoComplete="off" value={text}
+      <input id="numeric-answer" inputMode={integer ? 'numeric' : 'decimal'} autoComplete="off" value={text}
              onChange={(e) => {
                const v = e.target.value
-               if (!NUMERIC_TYPING.test(v)) return
+               if (!(integer ? INTEGER_TYPING : NUMERIC_TYPING).test(v)) return
                setText(v)
                if (v === '' || /\d$/.test(v)) onChange(v)
              }}
              className="border-input focus-visible:ring-ring/50 h-12 w-full rounded-md border px-3 text-lg tabular-nums outline-none focus-visible:ring-[3px]" />
-      <p className="text-muted-foreground text-xs">Enter an integer or decimal (up to 6 decimal places).</p>
+      <p className="text-muted-foreground text-xs">
+        {integer ? 'Enter a whole number (no decimal point).' : 'Enter an integer or decimal (up to 6 decimal places).'}
+      </p>
     </div>
   )
 }
