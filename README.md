@@ -2,7 +2,7 @@
 1. Providing JEE Mains Solution (Only MATHS) - https://huggingface.co/mradermacher/Aryabhata-2.0-i1-GGUF (ML - MODEL)
 2. Might Fine-tune for Physics and Chemistry and Bio Questions Solutions ( if needed )
 3. Login and Authentication
-4. Simple QRCode page for sample Payment
+4. Simple QRCode page for sample Payment and testing
 ---
 
 # ExamPrep — Online Test-Series Platform (JEE / NEET)
