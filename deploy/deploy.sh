@@ -44,9 +44,9 @@ fi
 
 echo "==> Pulling images"
 if ! $COMPOSE pull --quiet; then
-  echo "ERROR: could not download the images from ghcr.io."
-  echo "       Check that the 'Build images' GitHub Action finished, and that the packages"
-  echo "       exam_prep-backend and exam_prep-frontend are set to Public on GitHub."
+  echo "ERROR: could not download an image (see the error above)."
+  echo "       For ghcr.io images: check the 'Build images' GitHub Action finished and the"
+  echo "       packages exam_prep-backend / exam_prep-frontend are Public."
   exit 2
 fi
 
