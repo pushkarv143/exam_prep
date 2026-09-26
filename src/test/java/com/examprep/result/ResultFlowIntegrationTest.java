@@ -156,7 +156,8 @@ class ResultFlowIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.data.average.score").value(4.0));
 
         // Final ranks via SQL window functions must agree with the live ranks.
-        mvc.perform(post("/api/v1/admin/tests/" + testId + "/rankings/finalize").header("Authorization", admin))
+        mvc.perform(post("/api/v1/admin/tests/" + testId + "/rankings/finalize").header("Authorization", admin)
+                        .header("Idempotency-Key", "finalize-" + testId))
                 .andExpect(jsonPath("$.data.rankedCandidates").value(4));
         assertThat(jdbc.queryForList("SELECT rank FROM results WHERE test_id = ?::uuid ORDER BY score DESC, rank",
                 Integer.class, testId)).containsExactly(1, 2, 2, 4);

@@ -2,6 +2,7 @@ package com.examprep.attempt.paper;
 
 import com.examprep.attempt.paper.PaperDto.PaperQuestion;
 import com.examprep.attempt.paper.PaperDto.PaperSection;
+import com.examprep.question.entity.Language;
 import com.examprep.question.entity.QuestionType;
 import com.examprep.question.model.QuestionContent.Option;
 import org.junit.jupiter.api.Test;
@@ -22,7 +23,14 @@ class PaperShufflerTest {
 
     private static PaperQuestion q(int n, UUID paragraph, QuestionType type) {
         return new PaperQuestion(new UUID(0, n), n, type, BigDecimal.valueOf(4), BigDecimal.ONE, false, paragraph,
-                "Q" + n, List.of(), type == QuestionType.NUMERICAL ? List.of() : ABCD, List.of(), List.of());
+                "Q" + n, List.of(), type == QuestionType.NUMERICAL ? List.of() : ABCD, List.of(), List.of(), Language.EN,
+                Map.of(), true, null);
+    }
+
+    private static PaperQuestion withOptions(PaperQuestion q, List<Option> options, boolean shuffle) {
+        return new PaperQuestion(q.questionId(), q.number(), q.type(), q.marks(), q.negativeMarks(), q.partialMarking(),
+                q.paragraphId(), q.text(), q.images(), options, q.matchLeft(), q.matchRight(), q.language(),
+                q.translations(), shuffle, q.numericFormat());
     }
 
     /** Section 1: 20 questions, of which #5-#7 share one paragraph. Section 2: 5 questions. */
@@ -78,6 +86,28 @@ class PaperShufflerTest {
         assertThat(all.stream().filter(x -> x.type() == QuestionType.SINGLE_CORRECT)
                 .anyMatch(x -> !x.options().equals(ABCD))).isTrue();
         all.stream().filter(x -> x.type() == QuestionType.NUMERICAL).forEach(x -> assertThat(x.options()).isEmpty());
+    }
+
+    @Test
+    void pinned_options_stay_in_place_and_authors_can_forbid_shuffling() {
+        List<Option> withNone = List.of(new Option("A", "1", null), new Option("B", "2", null),
+                new Option("C", "3", null), new Option("D", "None of these", null, true));
+        PaperDto base = paper();
+        List<PaperQuestion> s2 = new ArrayList<>(base.sections().get(1).questions());
+        s2.set(0, withOptions(s2.get(0), withNone, true));
+        s2.set(1, withOptions(s2.get(1), ABCD, false));
+        PaperDto custom = new PaperDto(base.testId(), base.title(), 60, BigDecimal.TEN, 25, List.of(base.sections().get(0),
+                new PaperSection(base.sections().get(1).id(), "S2", null, null, null, s2)), Map.of());
+
+        boolean movedSomething = false;
+        for (long seed = 1; seed <= 20; seed++) {
+            List<PaperQuestion> out = PaperShuffler.forAttempt(custom, seed, false, true).sections().get(1).questions();
+            assertThat(out.get(0).options().get(3).id()).isEqualTo("D");          // pinned: always last
+            assertThat(out.get(0).options()).containsExactlyInAnyOrderElementsOf(withNone);
+            assertThat(out.get(1).options()).isEqualTo(ABCD);                      // author said: never shuffle
+            movedSomething |= !out.get(0).options().equals(withNone);
+        }
+        assertThat(movedSomething).isTrue();
     }
 
     @Test

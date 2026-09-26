@@ -3,24 +3,31 @@ package com.examprep.question.service;
 import com.examprep.catalog.dto.TopicPath;
 import com.examprep.catalog.service.CatalogQueryService;
 import com.examprep.question.dto.PickCriteria;
+import com.examprep.question.dto.QuestionPin;
 import com.examprep.question.dto.QuestionRef;
 import com.examprep.question.dto.QuestionSummaryDto;
 import com.examprep.question.dto.ReviewQuestionView;
 import com.examprep.question.dto.ScoringRef;
 import com.examprep.question.dto.StudentQuestionView;
+import com.examprep.question.dto.StudentTranslation;
+import com.examprep.question.entity.Language;
 import com.examprep.question.entity.Question;
-import com.examprep.question.entity.QuestionStatus;
 import com.examprep.question.entity.QuestionType;
 import com.examprep.question.mapper.QuestionMapper;
+import com.examprep.question.model.QuestionSnapshot;
+import com.examprep.question.model.QuestionTranslation;
 import com.examprep.question.repository.QuestionRepository;
+import com.examprep.user.service.UserService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,10 +37,20 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Read-only question API for other modules. The test builder, the generator and (in
- * Phase 4) the paper builder depend on this service, never on the question
- * repository or entity directly.
+ * Read-only question API for other modules. The test builder, the generator, the paper
+ * builder and evaluation depend on this service, never on the question repository or
+ * entity directly.
+ *
+ * <p>Two kinds of reads:
+ * <ul>
+ *   <li><b>Working copy</b> ({@link #findRefs}, {@link #findSummaries}): the bank as it is
+ *       now, for builders and pickers.</li>
+ *   <li><b>Pinned</b> ({@link #findStudentViews}, {@link #findScoringRefs},
+ *       {@link #findReviewViews}, {@link #findPassages}): the exact versions a test uses,
+ *       read from immutable snapshots. Editing the bank never changes these.</li>
+ * </ul>
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -43,6 +60,10 @@ public class QuestionLookupService {
     private final QuestionMapper mapper;
     private final CatalogQueryService catalog;
     private final EntityManager entityManager;
+    private final QuestionVersionService versions;
+    private final UserService users;
+
+    // ------------------------------------------------------------------ working copy
 
     public Map<UUID, QuestionRef> findRefs(Collection<UUID> ids) {
         if (ids.isEmpty()) {
@@ -60,58 +81,101 @@ public class QuestionLookupService {
         List<Question> questions = repository.findAllById(ids);
         Map<UUID, TopicPath> paths = catalog.resolveTopics(questions.stream()
                 .map(Question::getTopicId).filter(Objects::nonNull).collect(Collectors.toSet()));
+        Map<UUID, String> names = users.findNames(questions.stream().map(Question::getReviewerId)
+                .filter(Objects::nonNull).collect(Collectors.toSet()));
         Map<UUID, QuestionSummaryDto> result = new HashMap<>();
-        questions.forEach(q -> result.put(q.getId(), mapper.toSummary(q, paths.get(q.getTopicId()))));
+        questions.forEach(q -> result.put(q.getId(), mapper.toSummary(q, paths.get(q.getTopicId()), names)));
         return result;
     }
 
-    /** Student-safe views for building a test paper (never contains answers or solutions). */
-    public Map<UUID, StudentQuestionView> findStudentViews(Collection<UUID> ids) {
-        if (ids.isEmpty()) {
-            return Map.of();
-        }
-        return repository.findAllById(ids).stream()
-                .collect(Collectors.toMap(Question::getId, q -> new StudentQuestionView(q.getId(), q.getType(),
-                        q.getParentId(), q.getContent().text(), q.getContent().images(), q.getContent().options(),
-                        q.getContent().matchLeft(), q.getContent().matchRight())));
+    /** Usable children (published, not archived) of a PARAGRAPH, in creation order (UUIDv7 ids sort by time). */
+    public List<UUID> findUsableChildIds(UUID paragraphId) {
+        return repository.findUsableChildIds(paragraphId);
     }
 
-    public Map<UUID, ScoringRef> findScoringRefs(Collection<UUID> ids) {
-        if (ids.isEmpty()) {
-            return Map.of();
-        }
-        return repository.findAllById(ids).stream()
-                .collect(Collectors.toMap(Question::getId, q -> new ScoringRef(q.getId(), q.getType(),
-                        q.getAnswerKey(), q.getDifficulty(), q.getSubjectId(), q.getChapterId(), q.getTopicId())));
+    // ------------------------------------------------------------------ pinned versions
+
+    /** Student-safe views of the pinned versions (never contains answers or solutions). */
+    public Map<UUID, StudentQuestionView> findStudentViews(Collection<QuestionPin> pins) {
+        Map<UUID, StudentQuestionView> out = new HashMap<>();
+        snapshots(pins).forEach((id, s) -> out.put(id, new StudentQuestionView(id, s.type(), s.parentId(),
+                s.content().text(), s.content().images(), s.content().options(), s.content().matchLeft(),
+                s.content().matchRight(), s.language(), studentTranslations(s), s.content().optionsMayShuffle(),
+                s.content().numericFormat())));
+        return out;
     }
 
-    public Map<UUID, ReviewQuestionView> findReviewViews(Collection<UUID> ids) {
-        if (ids.isEmpty()) {
-            return Map.of();
-        }
-        return repository.findAllById(ids).stream()
-                .collect(Collectors.toMap(Question::getId, q -> new ReviewQuestionView(q.getId(), q.getType(),
-                        q.getParentId(), q.getContent().text(), q.getContent().images(), q.getContent().options(),
-                        q.getContent().matchLeft(), q.getContent().matchRight(), q.getAnswerKey(),
-                        q.getContent().solution())));
+    public Map<UUID, ScoringRef> findScoringRefs(Collection<QuestionPin> pins) {
+        Map<UUID, ScoringRef> out = new HashMap<>();
+        snapshots(pins).forEach((id, s) -> out.put(id, new ScoringRef(id, s.type(), s.answerKey(), s.difficulty(),
+                s.subjectId(), s.chapterId(), s.topicId())));
+        return out;
     }
 
-    public Map<UUID, StudentQuestionView.PassageView> findPassages(Collection<UUID> paragraphIds) {
-        if (paragraphIds.isEmpty()) {
-            return Map.of();
-        }
-        return repository.findAllById(paragraphIds).stream()
-                .collect(Collectors.toMap(Question::getId, q -> new StudentQuestionView.PassageView(q.getId(),
-                        q.getContent().paragraph(), q.getContent().images())));
+    public Map<UUID, ReviewQuestionView> findReviewViews(Collection<QuestionPin> pins) {
+        Map<UUID, ReviewQuestionView> out = new HashMap<>();
+        snapshots(pins).forEach((id, s) -> out.put(id, new ReviewQuestionView(id, s.type(), s.parentId(),
+                s.content().text(), s.content().images(), s.content().options(), s.content().matchLeft(),
+                s.content().matchRight(), s.answerKey(), s.content().solution(), s.language(),
+                s.translations().without(s.language()).asMap())));
+        return out;
     }
 
-    /** ACTIVE children of a PARAGRAPH, in creation order (UUIDv7 ids sort by time). */
-    public List<UUID> findActiveChildIds(UUID paragraphId) {
-        return repository.findActiveChildIds(paragraphId);
+    /** Passages of the pinned paragraph versions, keyed by paragraph id. */
+    public Map<UUID, StudentQuestionView.PassageView> findPassages(Map<UUID, Integer> paragraphPins) {
+        if (paragraphPins.isEmpty()) {
+            return Map.of();
+        }
+        List<QuestionPin> pins = paragraphPins.entrySet().stream()
+                .map(e -> new QuestionPin(e.getKey(), e.getValue())).toList();
+        Map<UUID, StudentQuestionView.PassageView> out = new HashMap<>();
+        snapshots(pins).forEach((id, s) -> {
+            Map<Language, String> translated = new EnumMap<>(Language.class);
+            s.translations().without(s.language()).asMap().forEach((lang, t) -> {
+                if (t.paragraph() != null) {
+                    translated.put(lang, t.paragraph());
+                }
+            });
+            out.put(id, new StudentQuestionView.PassageView(id, s.content().paragraph(), s.content().images(),
+                    s.language(), Map.copyOf(translated)));
+        });
+        return out;
     }
 
     /**
-     * Picks up to {@code count} random ACTIVE, standalone (no paragraph parent) questions.
+     * Snapshots for the pins. A pin without a version row (possible only for data written
+     * outside the application) falls back to the working copy, with a warning.
+     */
+    private Map<UUID, QuestionSnapshot> snapshots(Collection<QuestionPin> pins) {
+        if (pins.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, QuestionSnapshot> found = new HashMap<>(versions.load(pins));
+        List<UUID> missing = pins.stream().map(QuestionPin::questionId).filter(id -> !found.containsKey(id))
+                .distinct().toList();
+        if (!missing.isEmpty()) {
+            log.warn("No stored version for {} pinned question(s), using the working copy: {}", missing.size(),
+                    missing.stream().limit(5).toList());
+            repository.findAllById(missing).forEach(q -> found.put(q.getId(), QuestionSnapshot.of(q)));
+        }
+        return found;
+    }
+
+    private static Map<Language, StudentTranslation> studentTranslations(QuestionSnapshot s) {
+        Map<Language, QuestionTranslation> all = s.translations().without(s.language()).asMap();
+        if (all.isEmpty()) {
+            return Map.of();
+        }
+        Map<Language, StudentTranslation> out = new EnumMap<>(Language.class);
+        all.forEach((lang, t) -> out.put(lang, StudentTranslation.of(t)));
+        return Map.copyOf(out);
+    }
+
+    // ------------------------------------------------------------------ generator
+
+    /**
+     * Picks up to {@code count} random usable (published, not archived), standalone (no
+     * paragraph parent) questions.
      *
      * <p>{@code ORDER BY random()} is fine at question-bank scale (tens of thousands of
      * rows after the filters are applied, which use {@code ix_questions_topic_difficulty}
@@ -125,10 +189,10 @@ public class QuestionLookupService {
         }
         StringBuilder sql = new StringBuilder("""
                 SELECT q.id FROM questions q
-                WHERE q.status = :status AND q.parent_id IS NULL AND q.type <> :paragraph
+                WHERE q.published_version IS NOT NULL AND q.status <> 'ARCHIVED'
+                  AND q.parent_id IS NULL AND q.type <> :paragraph
                 """);
         Map<String, Object> params = new HashMap<>();
-        params.put("status", QuestionStatus.ACTIVE.name());
         params.put("paragraph", QuestionType.PARAGRAPH.name());
 
         if (c.subjectId() != null) {
@@ -175,6 +239,7 @@ public class QuestionLookupService {
 
     private static QuestionRef toRef(Question q) {
         return new QuestionRef(q.getId(), q.getType(), q.getDifficulty(), q.getStatus(), q.getSubjectId(),
-                q.getChapterId(), q.getTopicId(), q.getParentId(), q.getDefaultMarks(), q.getDefaultNegativeMarks());
+                q.getChapterId(), q.getTopicId(), q.getParentId(), q.getDefaultMarks(), q.getDefaultNegativeMarks(),
+                q.getPublishedVersion(), q.getCurrentVersion());
     }
 }

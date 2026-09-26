@@ -98,4 +98,8 @@ public final class BuilderDtos {
 
     public record GenerationReport(int added, List<Shortfall> shortfalls) {
     }
+
+    /** @param updated number of questions that moved to their latest published version */
+    public record VersionUpdateResult(int updated) {
+    }
 }

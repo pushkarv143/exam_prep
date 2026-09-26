@@ -7,7 +7,6 @@ import com.examprep.user.dto.AdminUserDtos.CreateUserRequest;
 import com.examprep.user.dto.AdminUserDtos.UpdateRolesRequest;
 import com.examprep.user.dto.AdminUserDtos.UpdateStatusRequest;
 import com.examprep.user.dto.UserDto;
-import com.examprep.user.entity.RoleName;
 import com.examprep.user.entity.UserStatus;
 import com.examprep.user.service.AdminUserService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -37,40 +36,52 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/admin/users")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("@perm.has('admin.access')")
 public class AdminUserController {
 
     private final AdminUserService service;
 
+    @PreAuthorize("@perm.has('user.view')")
     @GetMapping
     public ApiResponse<PageResponse<UserDto>> search(
             @RequestParam(required = false) String q, @RequestParam(required = false) UserStatus status,
-            @RequestParam(required = false) RoleName role,
+            @RequestParam(required = false) String role,
             @ParameterObject @PageableDefault(size = 50, sort = "createdAt", direction = Sort.Direction.DESC)
             Pageable pageable) {
         return ApiResponse.ok(service.search(q, status, role, pageable));
     }
 
+    @PreAuthorize("@perm.has('user.view')")
     @GetMapping("/{id}")
     public ApiResponse<UserDto> get(@PathVariable UUID id) {
         return ApiResponse.ok(service.get(id));
     }
 
+    @PreAuthorize("@perm.has('user.create')")
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public ApiResponse<UserDto> create(@Valid @RequestBody CreateUserRequest request) {
-        return ApiResponse.ok(service.create(request));
+    public ApiResponse<UserDto> create(@AuthenticationPrincipal AuthUser actor,
+                                       @Valid @RequestBody CreateUserRequest request) {
+        return ApiResponse.ok(service.create(actor, request));
     }
 
+    @PreAuthorize("@perm.has('user.view')")
+    @GetMapping("/{id}/access")
+    public ApiResponse<AdminUserService.UserAccess> access(@PathVariable UUID id) {
+        return ApiResponse.ok(service.access(id));
+    }
+
+    @PreAuthorize("@perm.has('user.status')")
     @PatchMapping("/{id}/status")
     public ApiResponse<UserDto> status(@AuthenticationPrincipal AuthUser actor, @PathVariable UUID id,
                                        @Valid @RequestBody UpdateStatusRequest request) {
         return ApiResponse.ok(service.updateStatus(actor, id, request.status()));
     }
 
+    @PreAuthorize("@perm.has('user.roles')")
     @PutMapping("/{id}/roles")
     public ApiResponse<UserDto> roles(@AuthenticationPrincipal AuthUser actor, @PathVariable UUID id,
                                       @Valid @RequestBody UpdateRolesRequest request) {
-        return ApiResponse.ok(service.updateRoles(actor, id, request.roles()));
+        return ApiResponse.ok(service.updateRoles(actor, id, request.roles(), request.subjectIds()));
     }
 }

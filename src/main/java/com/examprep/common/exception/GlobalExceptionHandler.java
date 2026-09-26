@@ -1,5 +1,7 @@
 package com.examprep.common.exception;
 
+import com.examprep.approval.ApprovalDtos;
+import com.examprep.approval.ApprovalRequiredException;
 import com.examprep.common.api.ApiError.FieldViolation;
 import com.examprep.common.api.ApiResponse;
 import jakarta.validation.ConstraintViolationException;
@@ -8,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.mapping.PropertyReferenceException;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -44,6 +47,16 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(ex.getErrorCode().getStatus())
                 .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
                 .body(errors.build(ex.getErrorCode(), ex.getMessage()));
+    }
+
+    /**
+     * Maker-checker: the operation was stored as an approval request instead of being executed.
+     * 202 Accepted signals "not done yet" while staying a success response for clients.
+     */
+    @ExceptionHandler(ApprovalRequiredException.class)
+    public ResponseEntity<ApiResponse<ApprovalDtos.ApprovalPending>> handleApprovalRequired(ApprovalRequiredException ex) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(ApiResponse.ok(new ApprovalDtos.ApprovalPending(true, ex.getRequest(), ex.getMessage())));
     }
 
     @ExceptionHandler(BusinessException.class)

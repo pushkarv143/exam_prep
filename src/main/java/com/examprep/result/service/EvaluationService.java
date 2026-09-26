@@ -1,5 +1,7 @@
 package com.examprep.result.service;
 
+import com.examprep.approval.ApprovalSpec;
+import com.examprep.approval.MakerChecker;
 import com.examprep.attempt.entity.AttemptStatus;
 import com.examprep.attempt.service.AttemptEvaluationAccess;
 import com.examprep.attempt.service.AttemptEvaluationAccess.AnswerRow;
@@ -54,11 +56,14 @@ public class EvaluationService {
     private final ApplicationEventPublisher events;
     private final Clock clock;
     private final MeterRegistry meters;
+    private final MakerChecker makerChecker;
     private final Timer timer;
 
     public EvaluationService(AttemptEvaluationAccess attempts, EvaluationSpecCache specs, ResultRepository results,
                              LeaderboardService leaderboard, RedisLock lock, PlatformTransactionManager tm,
-                             ApplicationEventPublisher events, Clock clock, MeterRegistry meters) {
+                             ApplicationEventPublisher events, Clock clock, MeterRegistry meters,
+                             MakerChecker makerChecker) {
+        this.makerChecker = makerChecker;
         this.attempts = attempts;
         this.specs = specs;
         this.results = results;
@@ -73,6 +78,10 @@ public class EvaluationService {
 
     /** @return true if this call scored the attempt (false: already done, busy elsewhere, or not submitted) */
     public boolean evaluate(UUID attemptId, boolean force) {
+        if (force) {
+            makerChecker.guard(ApprovalSpec.of("result.regenerate", "ATTEMPT", attemptId,
+                    "Re-evaluate attempt " + attemptId, Map.of("attemptId", attemptId)));
+        }
         Optional<RedisLock.Handle> handle;
         try {
             handle = lock.tryAcquire("lock:evaluate:" + attemptId, Duration.ofSeconds(60));

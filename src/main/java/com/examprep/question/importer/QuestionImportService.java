@@ -8,8 +8,14 @@ import com.examprep.question.dto.ImportReport;
 import com.examprep.question.dto.ImportReport.RowError;
 import com.examprep.question.dto.QuestionRequest;
 import com.examprep.question.entity.Question;
+import com.examprep.question.entity.QuestionStatus;
 import com.examprep.question.repository.QuestionRepository;
 import com.examprep.question.service.QuestionService;
+import com.examprep.question.service.QuestionVersionService;
+import com.examprep.question.workflow.ContentSettingsService;
+import com.examprep.rbac.service.PermissionService;
+import com.examprep.rbac.service.SubjectScopeGuard;
+import com.examprep.security.AuthUser;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +27,9 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -57,9 +66,26 @@ public class QuestionImportService {
     private final QuestionService questionService;
     private final QuestionRepository questionRepository;
     private final Validator beanValidator;
+    private final SubjectScopeGuard scopes;
+    private final QuestionVersionService versions;
+    private final ContentSettingsService settings;
+    private final PermissionService permissions;
+    private final Clock clock;
+
+    /**
+     * Workflow state of imported questions. SUBMIT puts them in the <em>unassigned</em> review
+     * queue (reviewers claim them; no e-mail per question). PUBLISH is allowed only when review
+     * is not required and the importer may publish.
+     */
+    public enum AfterImport { DRAFT, SUBMIT, PUBLISH }
 
     @Transactional
-    public ImportReport importQuestions(MultipartFile file, boolean dryRun, boolean autoCreateCatalog) {
+    public ImportReport importQuestions(MultipartFile file, boolean dryRun, boolean autoCreateCatalog,
+                                        AfterImport after, AuthUser user) {
+        if (after == AfterImport.PUBLISH && (!permissions.has(user, "question.publish") || settings.get().reviewRequired())) {
+            throw new BusinessException(ErrorCode.QUESTION_WORKFLOW, "Imported questions can be published directly only "
+                    + "when review is not required and you may publish. Import them as drafts or submit them for review.");
+        }
         SpreadsheetParser.ParsedSheet sheet;
         try (InputStream in = file.getInputStream()) {
             sheet = SpreadsheetParser.parse(file.getOriginalFilename(), in);
@@ -87,6 +113,7 @@ public class QuestionImportService {
         for (ImportRow row : rows) {
             try {
                 TopicPath path = resolveTopic(row, autoCreateCatalog, topicCache);
+                scopes.assertCanAuthor(user, path.subjectId());
                 QuestionRequest request = ImportRowMapper.toRequest(row, path.topicId());
                 Set<ConstraintViolation<QuestionRequest>> violations = beanValidator.validate(request);
                 if (!violations.isEmpty()) {
@@ -108,15 +135,39 @@ public class QuestionImportService {
             return new ImportReport(rows.size(), valid.size(), 0, dryRun, errors);
         }
 
+        applyWorkflow(valid, after, user);
         questionRepository.saveAll(valid);
         questionRepository.flush();   // surface constraint violations now, including on a dry run
+        versions.recordInitial(valid, user.id(), "Imported", after == AfterImport.PUBLISH);
 
         if (dryRun) {
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             return new ImportReport(rows.size(), valid.size(), 0, true, List.of());
         }
-        log.info("Imported {} questions from {}", valid.size(), file.getOriginalFilename());
+        log.info("Imported {} questions from {} ({})", valid.size(), file.getOriginalFilename(), after);
         return new ImportReport(rows.size(), valid.size(), valid.size(), false, List.of());
+    }
+
+    private void applyWorkflow(List<Question> questions, AfterImport after, AuthUser user) {
+        Instant now = clock.instant();
+        Duration sla = Duration.ofHours(settings.get().slaHours());
+        for (Question q : questions) {
+            q.setCurrentVersion(1);
+            switch (after) {
+                case DRAFT -> q.setStatus(QuestionStatus.DRAFT);
+                case SUBMIT -> {
+                    q.setStatus(QuestionStatus.IN_REVIEW);
+                    q.setSubmittedBy(user.id());
+                    q.setReviewRequestedAt(now);
+                    q.setReviewDueAt(now.plus(sla));
+                }
+                case PUBLISH -> {
+                    q.setStatus(QuestionStatus.PUBLISHED);
+                    q.setPublishedVersion(1);
+                    q.setPublishedAt(now);
+                }
+            }
+        }
     }
 
     private TopicPath resolveTopic(ImportRow row, boolean autoCreate, Map<String, TopicPath> cache) {

@@ -2,6 +2,9 @@
 spring:
   flyway:
     locations: classpath:db/migration,classpath:db/devdata
+    # Dev data is numbered V1000+, above the schema migrations. A new schema migration (V5, V6, ...)
+    # therefore arrives "out of order" on an existing dev database; allow it. Prod never loads devdata.
+    out-of-order: true
   jpa:
     properties:
       hibernate:

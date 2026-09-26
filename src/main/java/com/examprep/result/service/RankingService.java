@@ -1,5 +1,7 @@
 package com.examprep.result.service;
 
+import com.examprep.approval.ApprovalSpec;
+import com.examprep.approval.MakerChecker;
 import com.examprep.common.redis.RedisLock;
 import com.examprep.result.EvaluationProperties;
 import com.examprep.result.event.ResultEvents.ResultsFinalizedEvent;
@@ -15,6 +17,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -41,10 +44,12 @@ public class RankingService {
     private final ApplicationEventPublisher events;
     private final TransactionTemplate tx;
     private final Clock clock;
+    private final MakerChecker makerChecker;
 
     public RankingService(ResultRepository results, LeaderboardService leaderboard, TestService tests, RedisLock lock,
                           EvaluationProperties props, ApplicationEventPublisher events, PlatformTransactionManager tm,
-                          Clock clock) {
+                          Clock clock, MakerChecker makerChecker) {
+        this.makerChecker = makerChecker;
         this.results = results;
         this.leaderboard = leaderboard;
         this.tests = tests;
@@ -57,6 +62,9 @@ public class RankingService {
 
     /** @return number of ranked results, or -1 if another instance is finalising this test right now */
     public int finalizeRanks(UUID testId) {
+        // Admin-triggered runs may need a second person; scheduled runs (no user) never wait.
+        makerChecker.guard(ApprovalSpec.of("result.finalize", "TEST", testId,
+                "Finalize ranks for \"" + tests.title(testId) + "\"", Map.of("testId", testId)));
         Optional<RedisLock.Handle> handle = lock.tryAcquire("lock:finalize:" + testId, Duration.ofMinutes(5));
         if (handle.isEmpty()) {
             return -1;

@@ -48,7 +48,28 @@ public enum ErrorCode {
     SESSION_REVOKED(HttpStatus.UNAUTHORIZED, "Your session has ended, please log in again"),
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Invalid email/phone or password"),
     ACCOUNT_DISABLED(HttpStatus.FORBIDDEN, "Your account is disabled, please contact support"),
-    FORBIDDEN(HttpStatus.FORBIDDEN, "You do not have permission to perform this action");
+    FORBIDDEN(HttpStatus.FORBIDDEN, "You do not have permission to perform this action"),
+    // ---- admin security (Admin Portal 2.0) ----
+    MFA_INVALID_CODE(HttpStatus.UNAUTHORIZED, "The verification code is incorrect or has expired"),
+    MFA_CHALLENGE_EXPIRED(HttpStatus.UNAUTHORIZED, "Your sign-in attempt expired, please log in again"),
+    MFA_ENROLLMENT_REQUIRED(HttpStatus.FORBIDDEN, "Set up two-factor authentication to use the admin portal"),
+    MFA_ALREADY_ENABLED(HttpStatus.CONFLICT, "Two-factor authentication is already enabled"),
+    MFA_NOT_ENABLED(HttpStatus.CONFLICT, "Two-factor authentication is not enabled"),
+    IP_NOT_ALLOWED(HttpStatus.FORBIDDEN, "The admin portal cannot be used from this network"),
+    ROLE_READ_ONLY(HttpStatus.CONFLICT, "This built-in role cannot be changed this way"),
+    ROLE_IN_USE(HttpStatus.CONFLICT, "The role is still assigned to users"),
+    PRIVILEGE_ESCALATION(HttpStatus.FORBIDDEN, "You cannot grant permissions you do not have yourself"),
+    APPROVAL_NOT_PENDING(HttpStatus.CONFLICT, "This request is no longer waiting for a decision"),
+    APPROVAL_SELF_DECISION(HttpStatus.FORBIDDEN, "You cannot approve or reject your own request"),
+    IDEMPOTENCY_KEY_REQUIRED(HttpStatus.BAD_REQUEST, "This operation requires an Idempotency-Key header"),
+    IDEMPOTENCY_IN_PROGRESS(HttpStatus.CONFLICT, "The same request is still being processed"),
+    IDEMPOTENCY_KEY_REUSED(HttpStatus.UNPROCESSABLE_ENTITY, "This Idempotency-Key was already used for a different request"),
+
+    // Content studio (A2)
+    QUESTION_VERSION_CONFLICT(HttpStatus.CONFLICT, "Someone saved a newer version of this question"),
+    QUESTION_WORKFLOW(HttpStatus.CONFLICT, "This action is not possible in the question's current state"),
+    QUESTION_SELF_REVIEW(HttpStatus.FORBIDDEN, "You cannot review or approve a question you submitted or edited"),
+    REVIEWER_NOT_ELIGIBLE(HttpStatus.BAD_REQUEST, "This person cannot review questions of this subject");
 
     private final HttpStatus status;
     private final String defaultMessage;

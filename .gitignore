@@ -46,3 +46,8 @@ frontend/dist/
 *.tsbuildinfo
 .idea/workspace.xml
 .idea/shelf/
+
+# Deployment: server logs and SSH keys never go into git
+deploy/*.log
+*.key
+*.pem

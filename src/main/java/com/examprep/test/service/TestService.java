@@ -1,5 +1,8 @@
 package com.examprep.test.service;
 
+import com.examprep.approval.ApprovalSpec;
+import com.examprep.approval.MakerChecker;
+import com.examprep.audit.service.AuditContext;
 import com.examprep.catalog.dto.CatalogTreeDto;
 import com.examprep.catalog.service.CatalogQueryService;
 import com.examprep.common.api.PageResponse;
@@ -54,6 +57,7 @@ public class TestService {
     private final TestBuilderService builder;
     private final TestValidator validator;
     private final QuestionLookupService questions;
+    private final MakerChecker makerChecker;
     private final CatalogQueryService catalog;
     private final TestMapper mapper;
     private final Clock clock;
@@ -169,12 +173,20 @@ public class TestService {
         if (!report.publishable()) {
             throw new BusinessException(ErrorCode.TEST_NOT_PUBLISHABLE, String.join("; ", report.errors()));
         }
+        // Maker-checker: validated first, so nobody is asked to approve a paper that cannot be published.
+        makerChecker.guard(ApprovalSpec.of("test.publish", "TEST", id, "Publish test \"" + test.getTitle() + "\"",
+                Map.of("testId", id, "title", test.getTitle())));
+        TestDto before = mapper.toDto(test);
         Instant now = Instant.now(clock);
         boolean windowOpen = test.getStartAt() != null && !test.getStartAt().isAfter(now);
         test.setStatus(windowOpen ? TestStatus.LIVE : TestStatus.PUBLISHED);
         events.publishEvent(new TestPaperChangedEvent(id, test.getStatus() == TestStatus.LIVE || test.getStartAt() == null));
         log.info("Test {} published ({} questions, {} marks)", id, test.getTotalQuestions(), test.getTotalMarks());
-        return mapper.toDto(test);
+        TestDto after = mapper.toDto(test);
+        AuditContext.action("test.publish");
+        AuditContext.entity("TEST", id);
+        AuditContext.change(before, after);
+        return after;
     }
 
     /** Back to DRAFT for further editing, allowed only while nobody has attempted it. */
@@ -199,6 +211,11 @@ public class TestService {
         test.setStatus(TestStatus.ARCHIVED);
         events.publishEvent(new TestPaperChangedEvent(id, false));
         return mapper.toDto(test);
+    }
+
+    @Transactional(readOnly = true)
+    public String title(UUID id) {
+        return load(id).getTitle();
     }
 
     /** Called by the result module once final ranks and percentiles are persisted. */

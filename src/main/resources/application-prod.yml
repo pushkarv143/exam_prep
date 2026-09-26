@@ -17,6 +17,9 @@ app:
   security:
     jwt:
       secret: ${JWT_SECRET}
+    mfa:
+      encryption-key: ${MFA_ENCRYPTION_KEY}
+      enforce-for-staff: ${MFA_ENFORCE_FOR_STAFF:true}
   storage:
     s3:
       endpoint: ${S3_ENDPOINT:}

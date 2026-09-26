@@ -85,7 +85,8 @@ public class TestLookupService {
                 .toList();
         List<QuestionSlot> slots = testQuestionRepository.findByTestIdOrderByDisplayOrderAsc(testId).stream()
                 .map(q -> new QuestionSlot(q.getId(), q.getSectionId(), q.getQuestionId(), q.getDisplayOrder(),
-                        q.getMarks(), q.getNegativeMarks(), q.isPartialMarking()))
+                        q.getMarks(), q.getNegativeMarks(), q.isPartialMarking(), q.getQuestionVersion(),
+                        q.getPassageVersion()))
                 .toList();
         return new TestStructure(toSnapshot(test), sections, slots);
     }

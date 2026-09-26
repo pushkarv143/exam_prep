@@ -72,8 +72,13 @@ public final class TestDtos {
                           Instant ranksComputedAt, Instant createdAt, Instant updatedAt) {
     }
 
+    /**
+     * @param questionVersion the version this test uses; compare with {@code question.publishedVersion}
+     *                        to offer "a newer version is available"
+     */
     public record TestQuestionDto(UUID id, UUID questionId, int displayOrder, BigDecimal marks,
-                                  BigDecimal negativeMarks, boolean partialMarking, QuestionSummaryDto question) {
+                                  BigDecimal negativeMarks, boolean partialMarking, int questionVersion,
+                                  Integer passageVersion, QuestionSummaryDto question) {
     }
 
     public record SectionDto(UUID id, UUID subjectId, String name, String instructions, int displayOrder,

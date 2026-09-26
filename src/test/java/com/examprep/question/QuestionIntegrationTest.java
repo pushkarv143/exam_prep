@@ -61,7 +61,10 @@ class QuestionIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.data.topic.chapterName").value("Kinematics"))
                 .andExpect(jsonPath("$.data.marks").value(4))              // SCQ default +4
                 .andExpect(jsonPath("$.data.negativeMarks").value(1))      // SCQ default -1
-                .andExpect(jsonPath("$.data.usedInPublishedTest").value(false));
+                .andExpect(jsonPath("$.data.usedInPublishedTests").value(0))
+                .andExpect(jsonPath("$.data.status").value("DRAFT"))       // new questions start as drafts
+                .andExpect(jsonPath("$.data.currentVersion").value(1))
+                .andExpect(jsonPath("$.data.publishedVersion").doesNotExist());
 
         mvc.perform(get(BASE).param("q", unique.toUpperCase()).header("Authorization", teacher))
                 .andExpect(status().isOk())
@@ -89,21 +92,42 @@ class QuestionIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void answer_key_is_frozen_once_used_in_published_test_but_wording_can_change() throws Exception {
+    void editing_a_question_used_in_a_published_test_creates_a_new_version_and_the_test_keeps_its_own()
+            throws Exception {
         String admin = bearer(login(ADMIN, ADMIN_PASSWORD));
-        mvc.perform(get(BASE + "/" + SEEDED_Q1).header("Authorization", admin))
-                .andExpect(jsonPath("$.data.usedInPublishedTest").value(true));
+        var before = body(mvc.perform(get(BASE + "/" + SEEDED_Q1).header("Authorization", admin))
+                .andExpect(jsonPath("$.data.status").value("PUBLISHED"))
+                .andReturn()).at("/data");
+        int live = before.at("/publishedVersion").asInt();
+        org.assertj.core.api.Assertions.assertThat(before.at("/usedInPublishedTests").asLong()).isPositive();
 
+        // Even the answer key may change now: students keep being scored against the pinned version.
         Map<String, Object> changedKey = scq("A car starts from rest...", "A", "kinematics");
+        changedKey.put("baseVersion", before.at("/currentVersion").asInt());
         mvc.perform(put(BASE + "/" + SEEDED_Q1).header("Authorization", admin)
                         .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(changedKey)))
-                .andExpect(status().isConflict());
-
-        Map<String, Object> sameKey = scq("A car starts from rest (typo fixed)...", "b", "kinematics");
-        mvc.perform(put(BASE + "/" + SEEDED_Q1).header("Authorization", admin)
-                        .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(sameKey)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.content.text").value("A car starts from rest (typo fixed)..."));
+                .andExpect(jsonPath("$.data.status").value("DRAFT"))                 // a new revision
+                .andExpect(jsonPath("$.data.currentVersion").value(live + 1))
+                .andExpect(jsonPath("$.data.publishedVersion").value(live));            // still the live one
+
+        // A second save based on the old version is rejected instead of silently overwriting.
+        mvc.perform(put(BASE + "/" + SEEDED_Q1).header("Authorization", admin)
+                        .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(changedKey)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("QUESTION_VERSION_CONFLICT"));
+
+        mvc.perform(get(BASE + "/" + SEEDED_Q1 + "/versions").header("Authorization", admin))
+                .andExpect(jsonPath("$.data[0].version").value(live + 1))
+                .andExpect(jsonPath("$.data[0].changedFields", hasItem("answerKey")))
+                .andExpect(jsonPath("$.data[1].live").value(true));
+
+        // Roll back: the old content comes back as yet another version.
+        mvc.perform(post(BASE + "/" + SEEDED_Q1 + "/versions/" + live + "/restore").header("Authorization", admin)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"note\":\"undo\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.currentVersion").value(live + 2))
+                .andExpect(jsonPath("$.data.answerKey.options[0]").value("B"));
     }
 
     @Test

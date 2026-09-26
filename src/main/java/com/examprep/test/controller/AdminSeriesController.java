@@ -38,14 +38,14 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/admin/series")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("@perm.has('admin.access')")
 public class AdminSeriesController {
 
     private final TestSeriesService seriesService;
     private final SeriesAccessService accessService;
     private final EnrollmentService enrollmentService;
 
-    @PreAuthorize("hasAnyRole('ADMIN','TEACHER')")
+    @PreAuthorize("@perm.has('series.view')")
     @GetMapping
     public ApiResponse<PageResponse<SeriesDto>> search(
             @RequestParam(required = false) UUID examId, @RequestParam(required = false) SeriesStatus status,
@@ -54,41 +54,47 @@ public class AdminSeriesController {
         return ApiResponse.ok(seriesService.search(examId, status, free, q, pageable));
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN','TEACHER')")
+    @PreAuthorize("@perm.has('series.view')")
     @GetMapping("/{id}")
     public ApiResponse<SeriesDto> get(@PathVariable UUID id) {
         return ApiResponse.ok(seriesService.get(id));
     }
 
+    @PreAuthorize("@perm.has('series.manage')")
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<SeriesDto> create(@Valid @RequestBody SeriesRequest request) {
         return ApiResponse.ok(seriesService.create(request));
     }
 
+    @PreAuthorize("@perm.has('series.manage')")
     @PutMapping("/{id}")
     public ApiResponse<SeriesDto> update(@PathVariable UUID id, @Valid @RequestBody SeriesRequest request) {
         return ApiResponse.ok(seriesService.update(id, request));
     }
 
     @Operation(summary = "Publish (list publicly, enable enrollment/purchase)")
+    @PreAuthorize("@perm.has('series.publish')")
     @PostMapping("/{id}/publish")
     public ApiResponse<SeriesDto> publish(@PathVariable UUID id) {
         return ApiResponse.ok(seriesService.changeStatus(id, SeriesStatus.PUBLISHED));
     }
 
     @Operation(summary = "Archive (stop selling; existing enrollments keep access)")
+    @PreAuthorize("@perm.has('series.publish')")
     @PostMapping("/{id}/archive")
     public ApiResponse<SeriesDto> archive(@PathVariable UUID id) {
         return ApiResponse.ok(seriesService.changeStatus(id, SeriesStatus.ARCHIVED));
     }
 
     @Operation(summary = "Back to draft (only if nobody is enrolled)")
+    @PreAuthorize("@perm.has('series.publish')")
     @PostMapping("/{id}/unpublish")
     public ApiResponse<SeriesDto> unpublish(@PathVariable UUID id) {
         return ApiResponse.ok(seriesService.changeStatus(id, SeriesStatus.DRAFT));
     }
 
+    @PreAuthorize("@perm.has('series.view')")
     @GetMapping("/{id}/enrollments")
     public ApiResponse<PageResponse<EnrollmentDto>> enrollments(
             @PathVariable UUID id,
@@ -98,12 +104,14 @@ public class AdminSeriesController {
     }
 
     @Operation(summary = "Grant a student access without payment (support, scholarships)")
+    @PreAuthorize("@perm.has('series.manage')")
     @PostMapping("/{id}/enrollments")
     public ApiResponse<EnrollmentDto> grant(@PathVariable UUID id, @Valid @RequestBody AdminGrantRequest request) {
         return ApiResponse.ok(accessService.grantByAdmin(request.userId(), id));
     }
 
     @Operation(summary = "Revoke a student's access (e.g. after a refund)")
+    @PreAuthorize("@perm.has('series.manage')")
     @DeleteMapping("/{id}/enrollments/{userId}")
     public ApiResponse<Void> revoke(@PathVariable UUID id, @PathVariable UUID userId) {
         enrollmentService.cancel(userId, id);

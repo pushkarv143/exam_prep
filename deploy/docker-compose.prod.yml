@@ -1,0 +1,162 @@
+# ---------------------------------------------------------------------------
+# Production stack for the Oracle Cloud server. Images come from ghcr.io (built by
+# .github/workflows/deploy.yml); secrets come from ~/examprep/.env, which deploy.sh
+# generates on the server the first time and never overwrites.
+#
+# Sized for the Always Free 1 GB "E2.1.Micro" (plus 4 GB swap). On a bigger server,
+# raise the memory limits and JAVA_OPTS -Xmx.
+# ---------------------------------------------------------------------------
+name: examprep
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [frontend]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_HOST: ${SITE_HOST}
+      SITE_IP: ${SITE_IP}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    mem_limit: 64m
+
+  frontend:
+    image: ${IMAGE_PREFIX}-frontend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on: [backend]
+    mem_limit: 48m
+
+  backend:
+    image: ${IMAGE_PREFIX}-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      JAVA_OPTS: >-
+        -Xmx300m -Xss512k -XX:MaxMetaspaceSize=192m -XX:ReservedCodeCacheSize=64m
+        -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError
+      DB_URL: jdbc:postgresql://postgres:5432/examprep
+      DB_USERNAME: examprep
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_POOL_SIZE: 8
+      APP_EVALUATION_CONCURRENCY: 4
+      APP_ATTEMPT_AUTOSUBMITCONCURRENCY: 4
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET}
+      MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY}
+      MFA_ENFORCE_FOR_STAFF: ${MFA_ENFORCE_FOR_STAFF:-true}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD}
+      FRONTEND_URL: https://${SITE_HOST}
+      CORS_ALLOWED_ORIGINS: https://${SITE_HOST},http://${SITE_IP}
+      EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_AUTH: ${SMTP_AUTH:-true}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      MAIL_FROM: ${MAIL_FROM:-ExamPrep <no-reply@example.com>}
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: ${MINIO_USER}
+      S3_SECRET_KEY: ${MINIO_PASSWORD}
+      S3_BUCKET: examprep
+      S3_PATH_STYLE: "true"
+      S3_PUBLIC_BASE_URL: https://${SITE_HOST}/s3/examprep
+      MAX_TAB_SWITCHES: ${MAX_TAB_SWITCHES:-2}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-MOCK}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health/liveness || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 300s     # the first start on 1/8 CPU can take a few minutes
+      retries: 5
+    mem_limit: 640m
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    command: >
+      postgres -c shared_buffers=48MB -c max_connections=30 -c work_mem=2MB
+      -c maintenance_work_mem=16MB -c effective_cache_size=128MB
+    environment:
+      POSTGRES_DB: examprep
+      POSTGRES_USER: examprep
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U examprep -d examprep"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    mem_limit: 192m
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: >
+      redis-server --appendonly yes --appendfsync everysec
+      --maxmemory 64mb --maxmemory-policy noeviction
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+    mem_limit: 96m
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD}
+      GOMEMLIMIT: 120MiB
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    mem_limit: 160m
+
+  # One-shot: create the bucket and allow anonymous read of public question images.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_USER: ${MINIO_USER}
+      MINIO_PASSWORD: ${MINIO_PASSWORD}
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $${MINIO_USER} $${MINIO_PASSWORD} &&
+      mc mb --ignore-existing local/examprep &&
+      mc anonymous set download local/examprep/public
+      "
+    restart: "no"
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  caddy_data:
+  caddy_config:

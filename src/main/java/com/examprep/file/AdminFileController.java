@@ -22,12 +22,13 @@ import org.springframework.web.multipart.MultipartFile;
 @RestController
 @RequestMapping("/api/v1/admin/files")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('ADMIN','TEACHER')")
+@PreAuthorize("@perm.has('admin.access')")
 public class AdminFileController {
 
     private final FileStorageService storage;
 
     @Operation(summary = "Upload a file; returns its key and (for public categories) a permanent URL")
+    @PreAuthorize("@perm.has('file.upload')")
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<StoredFileDto> upload(@RequestPart("file") MultipartFile file,
@@ -36,6 +37,7 @@ public class AdminFileController {
     }
 
     @Operation(summary = "Get a short-lived download URL for a stored object")
+    @PreAuthorize("@perm.has('file.upload')")
     @GetMapping("/presigned-url")
     public ApiResponse<PresignedUrlDto> presign(@RequestParam String key) {
         return ApiResponse.ok(storage.presignDownload(key));

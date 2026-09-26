@@ -70,11 +70,15 @@ public class User extends BaseEntity {
         return status == UserStatus.ACTIVE;
     }
 
-    public Set<RoleName> roleNames() {
+    public Set<String> roleNames() {
         return roles.stream().map(Role::getName).collect(Collectors.toUnmodifiableSet());
     }
 
-    public boolean hasRole(RoleName role) {
-        return roles.stream().anyMatch(r -> r.getName() == role);
+    public boolean hasRole(String role) {
+        return roles.stream().anyMatch(r -> r.getName().equals(role));
+    }
+
+    public boolean isStaff() {
+        return roles.stream().anyMatch(Role::isStaff);
     }
 }

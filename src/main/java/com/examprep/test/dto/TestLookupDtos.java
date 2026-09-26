@@ -23,9 +23,15 @@ public final class TestLookupDtos {
                               Integer maxQuestionsToAttempt) {
     }
 
-    /** One question's placement and effective marking in the test. */
+    /**
+     * One question's placement and effective marking in the test.
+     *
+     * @param questionVersion the pinned question version
+     * @param passageVersion  for paragraph children, the pinned version of the passage (else null)
+     */
     public record QuestionSlot(UUID testQuestionId, UUID sectionId, UUID questionId, int displayOrder,
-                               BigDecimal marks, BigDecimal negativeMarks, boolean partialMarking) {
+                               BigDecimal marks, BigDecimal negativeMarks, boolean partialMarking,
+                               int questionVersion, Integer passageVersion) {
     }
 
     /** Sections and slots, both in display order. */

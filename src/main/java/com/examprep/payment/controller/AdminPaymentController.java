@@ -23,11 +23,12 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/admin/payments")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("@perm.has('admin.access')")
 public class AdminPaymentController {
 
     private final PaymentService paymentService;
 
+    @PreAuthorize("@perm.has('payment.view')")
     @GetMapping
     public ApiResponse<PageResponse<PaymentDto>> search(
             @RequestParam(required = false) PaymentStatus status, @RequestParam(required = false) UUID userId,

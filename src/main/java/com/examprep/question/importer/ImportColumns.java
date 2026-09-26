@@ -12,6 +12,7 @@ public final class ImportColumns {
     public static final String SUBJECT_CODE = "subjectcode";
     public static final String CHAPTER = "chapter";
     public static final String TOPIC = "topic";
+    public static final String SUB_TOPIC = "subtopic";
     public static final String TYPE = "type";
     public static final String DIFFICULTY = "difficulty";
     public static final String LANGUAGE = "language";
@@ -27,6 +28,14 @@ public final class ImportColumns {
     public static final String TAGS = "tags";
     public static final String SOURCE = "source";
     public static final String YEAR = "year";
+    // A2 metadata (all optional)
+    public static final String EXPECTED_TIME = "expectedtimesec";
+    public static final String COGNITIVE_LEVEL = "cognitivelevel";
+    public static final String SOURCE_TYPE = "sourcetype";
+    public static final String SHIFT = "shift";
+    public static final String CONCEPTS = "concepts";
+    // Hindi translation (optional): questionTextHi, optionAHi .. optionFHi, solutionTextHi
+    public static final String HINDI_SUFFIX = "hi";
 
     public static final List<String> REQUIRED = List.of(
             EXAM_CODE, SUBJECT_CODE, CHAPTER, TOPIC, TYPE, QUESTION_TEXT, CORRECT_ANSWER);
@@ -38,10 +47,10 @@ public final class ImportColumns {
      * Quote any cell that contains a comma, which includes LaTeX thin spaces ({@code \,}).
      */
     public static final String TEMPLATE_CSV = """
-            examCode,subjectCode,chapter,topic,type,difficulty,language,questionText,imageUrl,optionA,optionB,optionC,optionD,correctAnswer,tolerance,marks,negativeMarks,solutionText,solutionVideoUrl,tags,source,year
-            JEE_MAIN,PHY,Kinematics,Motion in One Dimension,SINGLE_CORRECT,EASY,EN,"A body starts from rest with $a = 2\\,\\text{m/s}^2$. Distance covered in 3 s is:",,"$9\\,\\text{m}$","$6\\,\\text{m}$","$3\\,\\text{m}$","$18\\,\\text{m}$",A,,4,1,"$s=\\frac{1}{2}at^2=9\\,\\text{m}$",,kinematics;basics,Sample,2024
-            JEE_MAIN,CHEM,Chemical Bonding,VSEPR Theory,MULTIPLE_CORRECT,MEDIUM,EN,Which of these molecules are linear?,,"$\\mathrm{CO_2}$","$\\mathrm{H_2O}$","$\\mathrm{BeCl_2}$","$\\mathrm{NH_3}$","A,C",,4,2,CO2 and BeCl2 are sp hybridised (linear).,,vsepr,Sample,
-            JEE_MAIN,MATH,Calculus,Definite Integration,NUMERICAL,MEDIUM,EN,"$\\int_0^2 x\\,dx$ equals ______",,,,,,2,0.01,4,0,"$\\left[\\frac{x^2}{2}\\right]_0^2 = 2$",,integration,Sample,
+            examCode,subjectCode,chapter,topic,type,difficulty,language,questionText,imageUrl,optionA,optionB,optionC,optionD,correctAnswer,tolerance,marks,negativeMarks,solutionText,solutionVideoUrl,tags,source,year,subTopic,expectedTimeSec,cognitiveLevel,sourceType,shift,concepts,questionTextHi,optionAHi,optionBHi,optionCHi,optionDHi,solutionTextHi
+            JEE_MAIN,PHY,Kinematics,Motion in One Dimension,SINGLE_CORRECT,EASY,EN,"A body starts from rest with $a = 2\\,\\text{m/s}^2$. Distance covered in 3 s is:",,"$9\\,\\text{m}$","$6\\,\\text{m}$","$3\\,\\text{m}$","$18\\,\\text{m}$",A,,4,1,"$s=\\frac{1}{2}at^2=9\\,\\text{m}$",,kinematics;basics,JEE Main,2024,Equations of motion,60,APPLY,PYQ,"27 Jan 2024, Shift 1",equations of motion,"एक वस्तु विराम से $a = 2\\,\\text{m/s}^2$ त्वरण से चलती है। 3 s में तय की गई दूरी है:","$9\\,\\text{m}$","$6\\,\\text{m}$","$3\\,\\text{m}$","$18\\,\\text{m}$","$s=\\frac{1}{2}at^2=9\\,\\text{m}$"
+            JEE_MAIN,CHEM,Chemical Bonding,VSEPR Theory,MULTIPLE_CORRECT,MEDIUM,EN,Which of these molecules are linear?,,"$\\mathrm{CO_2}$","$\\mathrm{H_2O}$","$\\mathrm{BeCl_2}$","$\\mathrm{NH_3}$","A,C",,4,2,CO2 and BeCl2 are sp hybridised (linear).,,vsepr,Sample,,,90,ANALYSE,ORIGINAL,,hybridisation;molecular shape,,,,,,
+            JEE_MAIN,MATH,Calculus,Definite Integration,NUMERICAL,MEDIUM,EN,"$\\int_0^2 x\\,dx$ equals ______",,,,,,2,0.01,4,0,"$\\left[\\frac{x^2}{2}\\right]_0^2 = 2$",,integration,Sample,,,120,RECALL,COACHING,,,,,,,,
             """;
 
     private ImportColumns() {

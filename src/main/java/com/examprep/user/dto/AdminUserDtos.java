@@ -1,7 +1,6 @@
 package com.examprep.user.dto;
 
 import com.examprep.auth.dto.PasswordPolicy;
-import com.examprep.user.entity.RoleName;
 import com.examprep.user.entity.UserStatus;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -11,6 +10,7 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 import java.util.Set;
+import java.util.UUID;
 
 public final class AdminUserDtos {
 
@@ -23,12 +23,17 @@ public final class AdminUserDtos {
             @NotBlank @Email @Size(max = 255) String email,
             @Pattern(regexp = "^[6-9]\\d{9}$", message = "must be a valid 10-digit Indian mobile number") String phone,
             @NotBlank @Pattern(regexp = PasswordPolicy.REGEX, message = PasswordPolicy.MESSAGE) String password,
-            @NotEmpty Set<RoleName> roles) {
+            @NotEmpty @Size(max = 10) Set<@NotBlank @Size(max = 32) String> roles) {
     }
 
     public record UpdateStatusRequest(@NotNull UserStatus status) {
     }
 
-    public record UpdateRolesRequest(@NotEmpty Set<RoleName> roles) {
+    /**
+     * @param subjectIds subjects a subject-scoped role (TEACHER) may author; ignored for other roles.
+     *                   null = leave the current scopes unchanged.
+     */
+    public record UpdateRolesRequest(@NotEmpty @Size(max = 10) Set<@NotBlank @Size(max = 32) String> roles,
+                                     @Size(max = 50) Set<UUID> subjectIds) {
     }
 }

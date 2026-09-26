@@ -1,5 +1,6 @@
 package com.examprep.result.controller;
 
+import com.examprep.common.idempotency.Idempotent;
 import com.examprep.common.api.ApiResponse;
 import com.examprep.common.api.PageResponse;
 import com.examprep.common.exception.BusinessException;
@@ -29,13 +30,14 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/admin")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('ADMIN','TEACHER')")
+@PreAuthorize("@perm.has('admin.access')")
 public class AdminResultController {
 
     private final ResultQueryService resultService;
     private final RankingService rankingService;
     private final EvaluationService evaluationService;
 
+    @PreAuthorize("@perm.has('result.view')")
     @GetMapping("/tests/{testId}/results")
     public ApiResponse<PageResponse<AdminResultRowDto>> results(
             @PathVariable UUID testId,
@@ -45,7 +47,8 @@ public class AdminResultController {
     }
 
     @Operation(summary = "Compute final ranks and percentiles now (e.g. for always-open tests)")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@perm.has('result.finalize')")
+    @Idempotent
     @PostMapping("/tests/{testId}/rankings/finalize")
     public ApiResponse<Map<String, Integer>> finalizeRanks(@PathVariable UUID testId) {
         int ranked = rankingService.finalizeRanks(testId);
@@ -56,7 +59,8 @@ public class AdminResultController {
     }
 
     @Operation(summary = "Force re-evaluation of one attempt (e.g. after a scoring fix)")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@perm.has('result.regenerate')")
+    @Idempotent
     @PostMapping("/attempts/{attemptId}/re-evaluate")
     public ApiResponse<Map<String, Boolean>> reEvaluate(@PathVariable UUID attemptId) {
         return ApiResponse.ok(Map.of("evaluated", evaluationService.evaluate(attemptId, true)));

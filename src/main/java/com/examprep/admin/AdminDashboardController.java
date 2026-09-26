@@ -18,20 +18,21 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/admin")
 @RequiredArgsConstructor
+@PreAuthorize("@perm.has('admin.access')")
 public class AdminDashboardController {
 
     private final AdminDashboardService dashboard;
     private final TestStatsService testStats;
 
     @Operation(summary = "Platform KPIs: users, tests, live attempts, revenue (with 30-day daily series)")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@perm.has('dashboard.view')")
     @GetMapping("/dashboard")
     public ApiResponse<DashboardDto> dashboard() {
         return ApiResponse.ok(dashboard.dashboard());
     }
 
     @Operation(summary = "Test-wise statistics: score summary, distribution, per-question difficulty analysis")
-    @PreAuthorize("hasAnyRole('ADMIN','TEACHER')")
+    @PreAuthorize("@perm.has('result.view')")
     @GetMapping("/tests/{testId}/stats")
     public ApiResponse<TestStatsDto> testStats(@PathVariable UUID testId) {
         return ApiResponse.ok(testStats.stats(testId));

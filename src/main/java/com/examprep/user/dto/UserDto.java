@@ -1,6 +1,5 @@
 package com.examprep.user.dto;
 
-import com.examprep.user.entity.RoleName;
 import com.examprep.user.entity.UserStatus;
 
 import java.time.Instant;
@@ -13,7 +12,7 @@ public record UserDto(
         String email,
         String phone,
         String fullName,
-        Set<RoleName> roles,
+        Set<String> roles,
         UserStatus status,
         boolean emailVerified,
         String avatarUrl,

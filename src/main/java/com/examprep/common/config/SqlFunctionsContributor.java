@@ -15,6 +15,8 @@ import org.hibernate.type.StandardBasicTypes;
 public class SqlFunctionsContributor implements FunctionContributor {
 
     public static final String QUESTION_TEXT_LOWER = "question_text_lower";
+    /** {@code jsonb_has_key(json, key)}: true when the JSONB object has the top-level key. */
+    public static final String JSONB_HAS_KEY = "jsonb_has_key";
 
     @Override
     public void contributeFunctions(FunctionContributions contributions) {
@@ -22,5 +24,9 @@ public class SqlFunctionsContributor implements FunctionContributor {
                 QUESTION_TEXT_LOWER,
                 "lower(jsonb_extract_path_text(?1, 'text'))",
                 contributions.getTypeConfiguration().getBasicTypeRegistry().resolve(StandardBasicTypes.STRING));
+        contributions.getFunctionRegistry().registerPattern(
+                JSONB_HAS_KEY,
+                "jsonb_exists(?1, ?2)",
+                contributions.getTypeConfiguration().getBasicTypeRegistry().resolve(StandardBasicTypes.BOOLEAN));
     }
 }

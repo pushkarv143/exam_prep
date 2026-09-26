@@ -10,6 +10,7 @@ import com.examprep.common.api.PageResponse;
 import com.examprep.common.exception.BusinessException;
 import com.examprep.common.exception.ErrorCode;
 import com.examprep.common.exception.NotFoundException;
+import com.examprep.question.dto.QuestionPin;
 import com.examprep.question.dto.ReviewQuestionView;
 import com.examprep.question.service.QuestionLookupService;
 import com.examprep.result.dto.ResultDtos.AdminResultRowDto;
@@ -159,12 +160,18 @@ public class ResultQueryService {
         }
 
         EvaluationSpecCache.Spec spec = specs.get(test.id());
-        List<UUID> ids = spec.questions().stream().map(QuestionSpec::questionId).toList();
-        Map<UUID, ReviewQuestionView> views = questions.findReviewViews(ids);
+        Map<UUID, ReviewQuestionView> views = questions.findReviewViews(spec.questions().stream()
+                .map(q -> new QuestionPin(q.questionId(), spec.pins().get(q.questionId()).questionVersion())).toList());
         Map<UUID, AnswerRow> answers = attempts.answers(attemptId).stream()
                 .collect(Collectors.toMap(AnswerRow::questionId, a -> a));
-        var passages = questions.findPassages(views.values().stream().map(ReviewQuestionView::parentId)
-                .filter(Objects::nonNull).collect(Collectors.toSet()));
+        Map<UUID, Integer> passagePins = new java.util.HashMap<>();
+        views.values().forEach(view -> {
+            if (view.parentId() != null) {
+                passagePins.putIfAbsent(view.parentId(),
+                        Objects.requireNonNullElse(spec.pins().get(view.id()).passageVersion(), 1));
+            }
+        });
+        var passages = questions.findPassages(passagePins);
 
         Map<UUID, List<QuestionSpec>> bySection = spec.questions().stream()
                 .collect(Collectors.groupingBy(QuestionSpec::sectionId));
@@ -182,7 +189,8 @@ public class ResultQueryService {
                         a == null ? com.examprep.attempt.entity.AnswerState.NOT_VISITED : a.state(),
                         view.answerKey(), a == null || a.outcome() == null ? "UNATTEMPTED" : a.outcome(),
                         a == null || a.marksAwarded() == null ? BigDecimal.ZERO : a.marksAwarded(), q.marks(),
-                        q.negativeMarks(), a == null ? 0 : a.timeSpentSeconds(), view.solution()));
+                        q.negativeMarks(), a == null ? 0 : a.timeSpentSeconds(), view.solution(), view.language(),
+                        view.translations()));
             }
             sections.add(new ReviewSectionDto(section.sectionId(), section.name(), items));
         }

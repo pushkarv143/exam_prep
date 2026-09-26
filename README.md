@@ -3,8 +3,74 @@
 A modular-monolith Spring Boot 3.5 / Java 21 backend with a React 18 frontend for timed mock tests:
 server-authoritative timers, Redis-buffered autosave, instant results, ranks and percentiles.
 
-> **Status: product complete (Phases 1–7).** Phase 8 adds architecture and ER diagrams, the full API
-> list, an OpenAPI/Postman collection and CI polish.
+> **Status: product complete (Phases 1–7).** Admin Portal 2.0 is being built in phases A1–A13
+> (A13 adds architecture and ER diagrams, the full API list, an OpenAPI/Postman collection and CI polish).
+
+## Admin Portal 2.0 — A2: Content Studio I
+
+**Review workflow.** Questions move `DRAFT → IN_REVIEW → CHANGES_REQUESTED → APPROVED → PUBLISHED → ARCHIVED`
+(the old `ACTIVE` state is now `PUBLISHED`). Reviewers are assigned automatically (least busy eligible reviewer)
+or by hand; every review has a due time (SLA, default 48 h) and overdue reviews get one e-mail reminder.
+Nobody approves a question they submitted or whose current version they saved.
+
+**Versions.** Every save creates an immutable version (`question_versions`). Tests pin the version they were built
+with, so editing a question never changes a paper students took. Publishing a new version moves draft tests to it,
+and published tests too, but only if the new version scores every answer the same way (a wording fix). Compare any
+two versions word by word, and restore an old one as a new version.
+
+**Bilingual and richer questions.** A Hindi (or English) translation lives on the same question and is edited side by
+side. Students switch language in the exam and in solutions (falls back to the primary text per field). Also new:
+sub-topic, expected time, source type with PYQ year/shift, cognitive level, concept tags, numerical answer ranges and
+integer-only answers, partial-marking rules (JEE Advanced / proportional / none), pinned options and "never shuffle".
+
+| Screen | Where |
+|---|---|
+| Question studio: side-by-side EN/HI editing, preview in either language, workflow buttons, Review and History tabs, autosave in the browser, unsaved-changes guard, Ctrl+S | `/admin/questions/:id` |
+| Review queue: assigned to me / unassigned / overdue / ready to publish / my drafts, SLA timers, bulk approve/publish/submit, workflow settings | `/admin/review` |
+| Question bank: status, live and language filters, version chips, bulk actions | `/admin/questions` |
+| Test builder: pinned version per question, "Use latest versions" for draft tests | `/admin/tests/:id` |
+
+**Try it** (dev profile; staff password `Staff@123`):
+1. `reviewer@examprep.local` → **Review queue**: one review is assigned to you, one is unassigned and overdue.
+   Open "A ball is dropped…" (answer range, bilingual), comment on a field, then **Approve**.
+2. `content@examprep.local` → **Review queue → Ready to publish** → tick both → **Publish**.
+3. Open sample question 5 ("hybridization of … SF6"): v1 is live, v2 is a draft revision. **History** → tick v1 and
+   v2 → **Compare**. Submit it; after approval, **Publish** reports which tests moved.
+4. `teacher@examprep.local` → **My drafts** → the projectile question: switch to **Side by side**, finish the Hindi
+   options, **Save as v2**, then **Submit for review**.
+5. `student@examprep.local` → Sample Mock Test 1 → choose **हिन्दी** before starting: questions 1, 2 and 4 are in Hindi.
+
+## Admin Portal 2.0 — A1: access foundation
+
+**Roles are data.** Eight built-in roles (`SUPER_ADMIN`, `CONTENT_MANAGER`, `TEACHER`, `REVIEWER`,
+`TEST_OPERATOR`, `SUPPORT_AGENT`, `FINANCE`, `MARKETING`) plus custom roles, each a set of the 64
+permissions in the `permissions` table (migration `V5`). Endpoints check `@PreAuthorize("@perm.has('x')")`;
+a role change applies on the next request (the snapshot is invalidated over Redis). Teachers are
+limited to their assigned subjects.
+
+| Feature | Where |
+|---|---|
+| Permission-aware shell: grouped sidebar, breadcrumbs, **Ctrl+K** palette, **?** help, `g`+key shortcuts | every `/admin` page |
+| Onboarding checklist and "waiting for your approval" banner | `/admin` |
+| Roles & permissions editor (create, copy, edit, delete custom roles) | `/admin/roles` |
+| Users: roles, teacher subject scopes, reset 2FA, sign out everywhere | `/admin/users` |
+| **Maker-checker**: sensitive actions (publish test, finalise ranks, …) become requests a second person approves | `/admin/approvals` |
+| Immutable audit log (monthly partitions, before/after diff, reason, CSV export) | `/admin/audit` |
+| Background jobs (DB queue, retries, cancel, download results) | `/admin/jobs` |
+| 2FA (TOTP + recovery codes), active sessions, IP allow-list, approval policies | `/admin/security` |
+
+Destructive actions ask for a **reason** (sent as `X-Reason`, stored in the audit log). Rank/result
+actions send an `Idempotency-Key`. A guarded action answers **HTTP 202** `{approvalRequired, request}`.
+
+**Try it** (dev profile; staff password `Staff@123`, admin `Admin@123`):
+1. Log in as `operator@examprep.local`, open a draft test, click **Publish**, give a reason → *Sent for approval*.
+2. Log in as `content@examprep.local` → the home page shows 1 request waiting → **Approvals** → **Approve**. The test is published.
+3. As `admin@examprep.local`, open **Audit log** and click a row to see who did what, with the diff.
+4. Any staff user: **Security → Set up 2FA**, scan the QR, then log out and back in — the login now asks for the code.
+5. Log in as `support@examprep.local`: the sidebar only shows what a support agent may use.
+
+Set `MFA_ENFORCE_FOR_STAFF=true` to make 2FA mandatory for the admin portal (the default in `prod`, which also
+requires `MFA_ENCRYPTION_KEY`). Dev seed data is numbered `V1000+`, so the dev profile sets Flyway `out-of-order: true`.
 
 ## Phase 7: exam, results and admin UI
 
@@ -29,7 +95,8 @@ Teachers see only the question bank and tests. The UI hides links by role, and t
 - **Crash-safe local backup**: pending answers are mirrored to `localStorage` with the highest seq sent per question. After a reload, an entry is replayed unless the server already holds a newer seq for that question.
 - **Palette**: NTA colours and shapes, counts, per-section grid. On mobile it opens as a drawer.
 - **Answers**: MCQ single and multiple, numerical (strict decimal typing), match-the-columns, and passages. The "attempt any N" limit is checked on the client as well as the server. Rejected answers roll back.
-- **Proctoring signals**: tab switches, blur, full-screen exit, copy/paste/right-click (blocked), and online/offline. Events are batched to the server, which may auto-submit after the configured tab-switch limit. A warning banner and an offline indicator are shown.
+- **Full-screen lock**: the test can only be taken in full screen (where the device supports it). Leaving full screen, switching tab or app, or minimising hides the questions until the student returns; each exit counts once, and the server auto-submits on the next exit after `MAX_TAB_SWITCHES` (default 2, so the 3rd exit submits). On Chromium the keyboard is locked in full screen, so Esc must be held to leave. Browsers cannot block Esc or Alt+Tab outright.
+- **Proctoring signals**: blur, full-screen exit, copy/paste/right-click (blocked), and online/offline are batched to the server as evidence.
 - **Submit dialog**: a per-section table of the five answer states.
 
 ```

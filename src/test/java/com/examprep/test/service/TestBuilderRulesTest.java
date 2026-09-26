@@ -29,6 +29,7 @@ class TestBuilderRulesTest {
         t.setQuestionId(question);
         t.setMarks(new BigDecimal(marks));
         t.setNegativeMarks(BigDecimal.ONE);
+        t.setQuestionVersion(1);
         return t;
     }
 
@@ -81,7 +82,7 @@ class TestBuilderRulesTest {
         UUID q2 = UUID.randomUUID();
         List<TestQuestion> tqs = List.of(tq(a.getId(), q1, "4"), tq(a.getId(), q2, "4"));
         Map<UUID, QuestionRef> refs = Map.of(
-                q1, ref(q1, QuestionType.SINGLE_CORRECT, QuestionStatus.ACTIVE, physics),
+                q1, ref(q1, QuestionType.SINGLE_CORRECT, QuestionStatus.PUBLISHED, physics),
                 q2, ref(q2, QuestionType.NUMERICAL, QuestionStatus.ARCHIVED, UUID.randomUUID()));
         TestSeries draftSeries = new TestSeries();
         draftSeries.setStatus(SeriesStatus.DRAFT);
@@ -93,7 +94,7 @@ class TestBuilderRulesTest {
 
         assertThat(report.publishable()).isFalse();
         assertThat(report.errors()).anyMatch(e -> e.contains("'Empty' has no questions"))
-                .anyMatch(e -> e.contains("is ARCHIVED"))
+                .anyMatch(e -> e.contains("is archived"))
                 .anyMatch(e -> e.contains("requires SINGLE_CORRECT"));
         assertThat(report.warnings()).anyMatch(w -> w.contains("the pattern expects 3"))
                 .anyMatch(w -> w.contains("different subject"))
@@ -106,13 +107,32 @@ class TestBuilderRulesTest {
         UUID q = UUID.randomUUID();
         ValidationReport report = new TestValidator().validate(new com.examprep.test.entity.Test(), null,
                 List.of(s), List.of(tq(s.getId(), q, "4")),
-                Map.of(q, ref(q, QuestionType.NUMERICAL, QuestionStatus.ACTIVE, null)), Instant.now());
+                Map.of(q, ref(q, QuestionType.NUMERICAL, QuestionStatus.PUBLISHED, null)), Instant.now());
         assertThat(report.publishable()).isTrue();
         assertThat(report.errors()).isEmpty();
     }
 
     private static QuestionRef ref(UUID id, QuestionType type, QuestionStatus status, UUID subject) {
+        return ref(id, type, status, subject, 1);
+    }
+
+    private static QuestionRef ref(UUID id, QuestionType type, QuestionStatus status, UUID subject, int published) {
         return new QuestionRef(id, type, Difficulty.MEDIUM, status, subject, null, null, null,
-                BigDecimal.valueOf(4), BigDecimal.ONE);
+                BigDecimal.valueOf(4), BigDecimal.ONE, published, published);
+    }
+
+    @Test
+    void validator_warns_when_a_newer_question_version_is_published_and_blocks_unpublished_ones() {
+        TestSection s = section("Physics", null);
+        UUID newer = UUID.randomUUID();
+        UUID never = UUID.randomUUID();
+        Map<UUID, QuestionRef> refs = Map.of(
+                newer, ref(newer, QuestionType.SINGLE_CORRECT, QuestionStatus.PUBLISHED, null, 3),
+                never, new QuestionRef(never, QuestionType.SINGLE_CORRECT, Difficulty.MEDIUM, QuestionStatus.DRAFT,
+                        null, null, null, null, BigDecimal.valueOf(4), BigDecimal.ONE, null, 1));
+        ValidationReport report = new TestValidator().validate(new com.examprep.test.entity.Test(), null,
+                List.of(s), List.of(tq(s.getId(), newer, "4"), tq(s.getId(), never, "4")), refs, Instant.now());
+        assertThat(report.warnings()).anyMatch(w -> w.contains("uses v1; v3 is published"));
+        assertThat(report.errors()).anyMatch(e -> e.contains("is not published"));
     }
 }

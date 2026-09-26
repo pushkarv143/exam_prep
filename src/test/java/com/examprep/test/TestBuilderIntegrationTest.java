@@ -98,7 +98,10 @@ class TestBuilderIntegrationTest extends AbstractIntegrationTest {
         mvc.perform(get(TESTS + "/" + testId + "/validation").header("Authorization", teacher))
                 .andExpect(jsonPath("$.data.publishable").value(false))
                 .andExpect(jsonPath("$.data.errors.length()").value(5));
+        // Teachers may build tests but not publish them (test.publish belongs to content managers).
         mvc.perform(post(TESTS + "/" + testId + "/publish").header("Authorization", teacher))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(TESTS + "/" + testId + "/publish").header("Authorization", bearer(login(ADMIN, ADMIN_PASSWORD))))
                 .andExpect(status().isUnprocessableEntity());
     }
 
@@ -155,7 +158,7 @@ class TestBuilderIntegrationTest extends AbstractIntegrationTest {
         mvc.perform(get(TESTS + "/" + testId).header("Authorization", teacher))
                 .andExpect(jsonPath("$.data.sections[0].questions[0].id").value(reversed.get(0)));
 
-        mvc.perform(post(TESTS + "/" + testId + "/publish").header("Authorization", teacher))
+        mvc.perform(post(TESTS + "/" + testId + "/publish").header("Authorization", bearer(login(ADMIN, ADMIN_PASSWORD))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("PUBLISHED"));
 

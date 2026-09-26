@@ -34,12 +34,12 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/admin/batches")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("@perm.has('admin.access')")
 public class AdminBatchController {
 
     private final BatchService batchService;
 
-    @PreAuthorize("hasAnyRole('ADMIN','TEACHER')")
+    @PreAuthorize("@perm.has('batch.view')")
     @GetMapping
     public ApiResponse<PageResponse<BatchDto>> search(@RequestParam(required = false) UUID examId,
                                                       @RequestParam(required = false) String q,
@@ -48,24 +48,26 @@ public class AdminBatchController {
         return ApiResponse.ok(batchService.search(examId, q, pageable));
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN','TEACHER')")
+    @PreAuthorize("@perm.has('batch.view')")
     @GetMapping("/{id}")
     public ApiResponse<BatchDto> get(@PathVariable UUID id) {
         return ApiResponse.ok(batchService.get(id));
     }
 
+    @PreAuthorize("@perm.has('batch.manage')")
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<BatchDto> create(@Valid @RequestBody CreateBatchRequest request) {
         return ApiResponse.ok(batchService.create(request));
     }
 
+    @PreAuthorize("@perm.has('batch.manage')")
     @PutMapping("/{id}")
     public ApiResponse<BatchDto> update(@PathVariable UUID id, @Valid @RequestBody UpdateBatchRequest request) {
         return ApiResponse.ok(batchService.update(id, request));
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN','TEACHER')")
+    @PreAuthorize("@perm.has('batch.view')")
     @GetMapping("/{id}/members")
     public ApiResponse<PageResponse<BatchMemberDto>> members(@PathVariable UUID id,
                                                              @ParameterObject @PageableDefault(size = 50)
@@ -73,12 +75,14 @@ public class AdminBatchController {
         return ApiResponse.ok(batchService.members(id, pageable));
     }
 
+    @PreAuthorize("@perm.has('batch.manage')")
     @PostMapping("/{id}/members")
     public ApiResponse<AddMembersResult> addMembers(@PathVariable UUID id,
                                                     @Valid @RequestBody AddMembersRequest request) {
         return ApiResponse.ok(batchService.addMembers(id, request));
     }
 
+    @PreAuthorize("@perm.has('batch.manage')")
     @DeleteMapping("/{id}/members/{userId}")
     public ApiResponse<Void> removeMember(@PathVariable UUID id, @PathVariable UUID userId) {
         batchService.removeMember(id, userId);

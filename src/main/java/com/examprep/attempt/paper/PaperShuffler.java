@@ -21,7 +21,8 @@ import java.util.Random;
  *       and the groups are shuffled.</li>
  *   <li>Options of single/multiple-correct questions are shuffled for display only.
  *       Their ids (A-D) are kept, so answers are stored and evaluated against the
- *       canonical labels. The UI shows positional numbers (1)-(4), like NTA.</li>
+ *       canonical labels. The UI shows positional numbers (1)-(4), like NTA. A question can
+ *       forbid shuffling, and single options can be pinned (e.g. "None of these" stays last).</li>
  * </ul>
  */
 public final class PaperShuffler {
@@ -43,12 +44,10 @@ public final class PaperShuffler {
             List<PaperQuestion> renumbered = new ArrayList<>(ordered.size());
             for (PaperQuestion q : ordered) {
                 List<Option> options = q.options();
-                if (shuffleOptions && (q.type() == QuestionType.SINGLE_CORRECT
+                if (shuffleOptions && q.shuffleOptions() && (q.type() == QuestionType.SINGLE_CORRECT
                         || q.type() == QuestionType.MULTIPLE_CORRECT) && options.size() > 1) {
-                    List<Option> copy = new ArrayList<>(options);
-                    Collections.shuffle(copy, new Random(seed ^ q.questionId().getMostSignificantBits()
+                    options = shuffleUnpinned(options, new Random(seed ^ q.questionId().getMostSignificantBits()
                             ^ q.questionId().getLeastSignificantBits()));
-                    options = List.copyOf(copy);
                 }
                 renumbered.add(q.withNumberAndOptions(++number, options));
             }
@@ -57,6 +56,23 @@ public final class PaperShuffler {
         }
         return new PaperDto(paper.testId(), paper.title(), paper.durationMinutes(), paper.totalMarks(),
                 paper.totalQuestions(), List.copyOf(sections), paper.passages());
+    }
+
+    /** Shuffles the options that are not pinned; pinned options keep their position. */
+    static List<Option> shuffleUnpinned(List<Option> options, Random random) {
+        List<Option> free = new ArrayList<>();
+        for (Option o : options) {
+            if (!o.keepsPosition()) {
+                free.add(o);
+            }
+        }
+        Collections.shuffle(free, random);
+        List<Option> out = new ArrayList<>(options.size());
+        int next = 0;
+        for (Option o : options) {
+            out.add(o.keepsPosition() ? o : free.get(next++));
+        }
+        return List.copyOf(out);
     }
 
     /** Groups consecutive questions sharing a paragraph, shuffles the groups, then flattens. */

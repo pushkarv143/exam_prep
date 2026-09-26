@@ -3,12 +3,14 @@ package com.examprep.result.dto;
 import com.examprep.attempt.entity.AnswerState;
 import com.examprep.attempt.model.StudentAnswer;
 import com.examprep.question.dto.StudentQuestionView.PassageView;
+import com.examprep.question.entity.Language;
 import com.examprep.question.entity.QuestionType;
 import com.examprep.question.model.AnswerKey;
 import com.examprep.question.model.QuestionContent.MatchItem;
 import com.examprep.question.model.QuestionContent.Media;
 import com.examprep.question.model.QuestionContent.Option;
 import com.examprep.question.model.QuestionContent.Solution;
+import com.examprep.question.model.QuestionTranslation;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -57,7 +59,8 @@ public final class ResultDtos {
                                 List<Media> images, List<Option> options, List<MatchItem> matchLeft,
                                 List<MatchItem> matchRight, StudentAnswer yourAnswer, AnswerState state,
                                 AnswerKey correctAnswer, String outcome, BigDecimal marksAwarded, BigDecimal marks,
-                                BigDecimal negativeMarks, int timeSpentSeconds, Solution solution) {
+                                BigDecimal negativeMarks, int timeSpentSeconds, Solution solution,
+                                Language language, Map<Language, QuestionTranslation> translations) {
     }
 
     public record ReviewSectionDto(UUID sectionId, String name, List<ReviewItemDto> questions) {

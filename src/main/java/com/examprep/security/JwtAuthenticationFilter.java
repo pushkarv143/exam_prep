@@ -5,7 +5,7 @@ import com.examprep.security.jwt.InvalidTokenException;
 import com.examprep.security.jwt.JwtService;
 import com.examprep.security.jwt.TokenClaims;
 import com.examprep.security.jwt.TokenType;
-import com.examprep.user.entity.RoleName;
+import com.examprep.user.entity.Roles;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -70,7 +70,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private void verifyNotRevoked(TokenClaims claims) {
         TokenStore.TokenState state;
         try {
-            state = tokenStore.loadState(claims.tokenId(), claims.userId());
+            state = tokenStore.loadState(claims.tokenId(), claims.userId(), claims.sessionId());
         } catch (DataAccessException e) {
             // Fail open on the revocation check only. The signature and expiry are
             // already verified and access tokens are short-lived, so a Redis blip must
@@ -82,7 +82,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             throw new InvalidTokenException(ErrorCode.SESSION_REVOKED);
         }
         if (securityProperties.singleSessionEnabled()
-                && claims.roles().contains(RoleName.STUDENT)
+                && claims.roles().contains(Roles.STUDENT)
                 && state.activeSessionId() != null
                 && !state.activeSessionId().equals(claims.sessionId())) {
             throw new InvalidTokenException(ErrorCode.SESSION_REVOKED,
@@ -92,9 +92,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private void authenticate(HttpServletRequest request, TokenClaims claims) {
         AuthUser principal = new AuthUser(claims.userId(), claims.email(), claims.roles(), claims.sessionId(),
-                claims.tokenId(), claims.expiresAt());
+                claims.tokenId(), claims.expiresAt(), claims.mfaVerified());
         List<SimpleGrantedAuthority> authorities = claims.roles().stream()
-                .map(role -> new SimpleGrantedAuthority("ROLE_" + role.name()))
+                .map(role -> new SimpleGrantedAuthority("ROLE_" + role))
                 .toList();
         UsernamePasswordAuthenticationToken authentication =
                 UsernamePasswordAuthenticationToken.authenticated(principal, null, authorities);

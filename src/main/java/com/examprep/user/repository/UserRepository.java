@@ -47,6 +47,6 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             """)
     org.springframework.data.domain.Page<User> search(@Param("q") String q,
                                                       @Param("status") com.examprep.user.entity.UserStatus status,
-                                                      @Param("role") com.examprep.user.entity.RoleName role,
+                                                      @Param("role") String role,
                                                       org.springframework.data.domain.Pageable pageable);
 }

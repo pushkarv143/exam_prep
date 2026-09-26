@@ -13,7 +13,7 @@ import java.util.UUID;
 /**
  * A question placed in a test section. The marks are the <b>effective</b> values,
  * resolved when the question is added (request > section default > question default),
- * so evaluation never needs to re-derive them.
+ * so evaluation never needs to re-derive them. The question is pinned to a version.
  */
 @Getter
 @Setter
@@ -38,6 +38,14 @@ public class TestQuestion extends BaseEntity {
 
     @Column(name = "negative_marks", nullable = false, precision = 6, scale = 2)
     private BigDecimal negativeMarks;
+
+    /** The question version this test uses; later edits in the bank do not change it. */
+    @Column(name = "question_version", nullable = false)
+    private int questionVersion;
+
+    /** For paragraph children: the version of the parent passage this test shows. */
+    @Column(name = "passage_version")
+    private Integer passageVersion;
 
     /** Multiple-correct partial scheme (+1 per correct option when no wrong option is chosen). */
     @Column(name = "partial_marking", nullable = false)

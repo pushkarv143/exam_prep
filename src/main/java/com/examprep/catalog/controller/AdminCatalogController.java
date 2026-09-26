@@ -41,70 +41,76 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/admin/catalog")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('ADMIN','TEACHER')")
+@PreAuthorize("@perm.has('admin.access')")
 public class AdminCatalogController {
 
     private final CatalogQueryService query;
     private final CatalogAdminService admin;
 
     @Operation(summary = "List all exams including inactive")
+    @PreAuthorize("@perm.has('catalog.view')")
     @GetMapping("/exams")
     public ApiResponse<List<ExamDto>> exams() {
         return ApiResponse.ok(query.listAllExams());
     }
 
     @Operation(summary = "Full tree of an exam (optionally including inactive nodes)")
+    @PreAuthorize("@perm.has('catalog.view')")
     @GetMapping("/exams/{examId}/tree")
     public ApiResponse<CatalogTreeDto> tree(@PathVariable UUID examId,
                                             @RequestParam(defaultValue = "true") boolean includeInactive) {
         return ApiResponse.ok(query.getTree(examId, includeInactive));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@perm.has('catalog.manage')")
     @PostMapping("/exams")
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<ExamDto> createExam(@Valid @RequestBody CreateExamRequest request) {
         return ApiResponse.ok(admin.createExam(request));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@perm.has('catalog.manage')")
     @PutMapping("/exams/{id}")
     public ApiResponse<ExamDto> updateExam(@PathVariable UUID id, @Valid @RequestBody UpdateNodeRequest request) {
         return ApiResponse.ok(admin.updateExam(id, request));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@perm.has('catalog.manage')")
     @PostMapping("/subjects")
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<SubjectDto> createSubject(@Valid @RequestBody CreateSubjectRequest request) {
         return ApiResponse.ok(admin.createSubject(request));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@perm.has('catalog.manage')")
     @PutMapping("/subjects/{id}")
     public ApiResponse<SubjectDto> updateSubject(@PathVariable UUID id,
                                                  @Valid @RequestBody UpdateNodeRequest request) {
         return ApiResponse.ok(admin.updateSubject(id, request));
     }
 
+    @PreAuthorize("@perm.has('catalog.manage')")
     @PostMapping("/chapters")
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<ChapterDto> createChapter(@Valid @RequestBody CreateChapterRequest request) {
         return ApiResponse.ok(admin.createChapter(request));
     }
 
+    @PreAuthorize("@perm.has('catalog.manage')")
     @PutMapping("/chapters/{id}")
     public ApiResponse<ChapterDto> updateChapter(@PathVariable UUID id,
                                                  @Valid @RequestBody UpdateNodeRequest request) {
         return ApiResponse.ok(admin.updateChapter(id, request));
     }
 
+    @PreAuthorize("@perm.has('catalog.manage')")
     @PostMapping("/topics")
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<TopicDto> createTopic(@Valid @RequestBody CreateTopicRequest request) {
         return ApiResponse.ok(admin.createTopic(request));
     }
 
+    @PreAuthorize("@perm.has('catalog.manage')")
     @PutMapping("/topics/{id}")
     public ApiResponse<TopicDto> updateTopic(@PathVariable UUID id, @Valid @RequestBody UpdateNodeRequest request) {
         return ApiResponse.ok(admin.updateTopic(id, request));

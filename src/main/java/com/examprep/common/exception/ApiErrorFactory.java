@@ -7,6 +7,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.MDC;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 
@@ -23,9 +25,17 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ApiErrorFactory {
 
+    /** Request attribute holding the error code of the response (read by the audit filter). */
+    public static final String ERROR_CODE_ATTRIBUTE = ApiErrorFactory.class.getName() + ".code";
+
     private final ObjectMapper objectMapper;
 
     public ApiResponse<Void> build(ErrorCode code, String message, List<ApiError.FieldViolation> violations) {
+        RequestAttributes attrs = RequestContextHolder.getRequestAttributes();
+        if (attrs != null) {
+            attrs.setAttribute(ERROR_CODE_ATTRIBUTE, code.name(),
+                    RequestAttributes.SCOPE_REQUEST);
+        }
         return ApiResponse.failure(new ApiError(code.name(),
                 message != null ? message : code.getDefaultMessage(),
                 violations, MDC.get(RequestIdFilter.MDC_KEY)));
@@ -38,6 +48,7 @@ public class ApiErrorFactory {
     /** Writes an error directly to the servlet response (used from filters). */
     public void write(HttpServletResponse response, ErrorCode code, String message) throws IOException {
         response.setStatus(code.getStatus().value());
+        response.setHeader("X-Error-Code", code.name());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         objectMapper.writeValue(response.getOutputStream(), build(code, message));

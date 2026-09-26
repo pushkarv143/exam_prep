@@ -6,27 +6,27 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.UUID;
 
 public interface QuestionRepository extends JpaRepository<Question, UUID>, JpaSpecificationExecutor<Question> {
 
-    /**
-     * True if the question is part of any non-DRAFT test. Students may already hold (or
-     * be evaluated against) its answer key, so the key must not change.
-     * This is a native query because the test module's entities arrive in Phase 3. It
-     * reads only two columns of the test tables.
-     */
+    /** Number of non-DRAFT tests that use the question (in any version). Native: reads two test columns. */
     @Query(value = """
-            SELECT EXISTS (
-                SELECT 1 FROM test_questions tq
-                JOIN tests t ON t.id = tq.test_id
-                WHERE tq.question_id = :questionId AND t.status <> 'DRAFT')
+            SELECT count(DISTINCT tq.test_id) FROM test_questions tq
+            JOIN tests t ON t.id = tq.test_id
+            WHERE tq.question_id = :questionId AND t.status <> 'DRAFT'
             """, nativeQuery = true)
-    boolean isUsedInPublishedTest(@Param("questionId") UUID questionId);
+    long countPublishedTestsUsing(@Param("questionId") UUID questionId);
 
     long countByParentId(UUID parentId);
 
-    @Query("select q.id from Question q where q.parentId = :parentId "
-            + "and q.status = com.examprep.question.entity.QuestionStatus.ACTIVE order by q.id")
-    java.util.List<UUID> findActiveChildIds(@Param("parentId") UUID parentId);
+    @Query("select q.id from Question q where q.parentId = :parentId and q.publishedVersion is not null "
+            + "and q.status <> com.examprep.question.entity.QuestionStatus.ARCHIVED order by q.id")
+    List<UUID> findUsableChildIds(@Param("parentId") UUID parentId);
+
+    /** Distinct sub-topics already used in a topic, for the editor's suggestions. */
+    @Query("select distinct q.subTopic from Question q where q.topicId = :topicId and q.subTopic is not null "
+            + "order by q.subTopic")
+    List<String> findSubTopics(@Param("topicId") UUID topicId);
 }

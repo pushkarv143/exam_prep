@@ -4,6 +4,7 @@ import com.examprep.attempt.AttemptProperties;
 import com.examprep.attempt.paper.PaperDto.PaperQuestion;
 import com.examprep.attempt.paper.PaperDto.PaperSection;
 import com.examprep.common.redis.RedisLock;
+import com.examprep.question.dto.QuestionPin;
 import com.examprep.question.dto.StudentQuestionView;
 import com.examprep.question.dto.StudentQuestionView.PassageView;
 import com.examprep.question.service.QuestionLookupService;
@@ -21,6 +22,7 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -162,10 +164,16 @@ public class PaperService {
     PaperDto build(UUID testId) {
         long start = System.nanoTime();
         TestStructure structure = tests.structure(testId);
-        List<UUID> questionIds = structure.slots().stream().map(QuestionSlot::questionId).toList();
-        Map<UUID, StudentQuestionView> views = questions.findStudentViews(questionIds);
-        Map<UUID, PassageView> passages = questions.findPassages(views.values().stream()
-                .map(StudentQuestionView::parentId).filter(Objects::nonNull).collect(Collectors.toSet()));
+        Map<UUID, StudentQuestionView> views = questions.findStudentViews(structure.slots().stream()
+                .map(s -> new QuestionPin(s.questionId(), s.questionVersion())).toList());
+        Map<UUID, Integer> passagePins = new HashMap<>();
+        for (QuestionSlot slot : structure.slots()) {
+            StudentQuestionView v = views.get(slot.questionId());
+            if (v != null && v.parentId() != null) {
+                passagePins.putIfAbsent(v.parentId(), Objects.requireNonNullElse(slot.passageVersion(), 1));
+            }
+        }
+        Map<UUID, PassageView> passages = questions.findPassages(passagePins);
         Map<UUID, List<QuestionSlot>> bySection = structure.slots().stream()
                 .collect(Collectors.groupingBy(QuestionSlot::sectionId));
 
@@ -181,7 +189,7 @@ public class PaperService {
                 }
                 qs.add(new PaperQuestion(v.id(), ++number, v.type(), slot.marks(), slot.negativeMarks(),
                         slot.partialMarking(), v.parentId(), v.text(), v.images(), v.options(), v.matchLeft(),
-                        v.matchRight()));
+                        v.matchRight(), v.language(), v.translations(), v.shuffleOptions(), v.numericFormat()));
             }
             sections.add(new PaperSection(s.id(), s.name(), s.subjectId(), s.instructions(), s.maxQuestionsToAttempt(),
                     List.copyOf(qs)));

@@ -131,6 +131,18 @@ app:
     password-reset-ttl: 30m
     cors:
       allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+    mfa:
+      # Base64 AES-256 key for TOTP secrets at rest. MUST be overridden outside dev.
+      encryption-key: ${MFA_ENCRYPTION_KEY:ZGV2LW9ubHktbWZhLWtleS0zMi1ieXRlcy1sb25nISE=}
+      enforce-for-staff: ${MFA_ENFORCE_FOR_STAFF:false}
+      issuer: ExamPrep
+    admin-ip-allowlist:
+      force-disabled: ${ADMIN_IP_ALLOWLIST_FORCE_DISABLED:false}
+  jobs:
+    enabled: ${JOBS_ENABLED:true}
+    concurrency: ${JOBS_CONCURRENCY:4}
+  outbox:
+    enabled: ${OUTBOX_ENABLED:true}
   rate-limit:
     enabled: true
   notification:
@@ -153,7 +165,7 @@ app:
   attempt:
     autosave-grace: 15s              # accept the final autosave slightly after the deadline (network latency)
     auto-submit-grace: 30s           # force-submit only after the client had its chance to submit
-    max-tab-switches: ${MAX_TAB_SWITCHES:0}   # 0 = unlimited (log only); e.g. 5 = auto-submit on the 6th
+    max-tab-switches: ${MAX_TAB_SWITCHES:2}   # times a student may leave the test (full screen, tab, app, minimise); auto-submit on the next. 0 = unlimited
     paper-cache-ttl: 6h
     paper-local-ttl: 60s
     auto-submit-concurrency: 16      # keep well below the DB pool size

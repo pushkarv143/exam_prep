@@ -1,19 +1,22 @@
 package com.examprep.question.importer;
 
 import com.examprep.question.dto.QuestionRequest;
+import com.examprep.question.entity.CognitiveLevel;
 import com.examprep.question.entity.Difficulty;
 import com.examprep.question.entity.Language;
-import com.examprep.question.entity.QuestionStatus;
 import com.examprep.question.entity.QuestionType;
+import com.examprep.question.entity.SourceType;
 import com.examprep.question.model.AnswerKey;
 import com.examprep.question.model.QuestionContent;
 import com.examprep.question.model.QuestionContent.Media;
 import com.examprep.question.model.QuestionContent.Option;
 import com.examprep.question.model.QuestionContent.Solution;
+import com.examprep.question.model.QuestionTranslation;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -79,15 +82,37 @@ public final class ImportRowMapper {
                 optionalEnum(row, DIFFICULTY, Difficulty.class),
                 optionalEnum(row, LANGUAGE, Language.class),
                 topicId,
+                row.get(SUB_TOPIC),
                 null,
                 content,
                 key,
+                hindi(row, options),
                 optionalDecimal(row, MARKS),
                 optionalDecimal(row, NEGATIVE_MARKS),
-                QuestionStatus.ACTIVE,
+                optionalEnum(row, SOURCE_TYPE, SourceType.class),
                 row.get(SOURCE),
                 optionalInt(row, YEAR),
-                parseTags(row.get(TAGS)));
+                row.get(SHIFT),
+                optionalInt(row, EXPECTED_TIME),
+                optionalEnum(row, COGNITIVE_LEVEL, CognitiveLevel.class),
+                parseTags(row.get(TAGS)),
+                parseTags(row.get(CONCEPTS)),
+                null,
+                "Imported");
+    }
+
+    /** The optional Hindi columns as a translation (null when the row has none). */
+    private static Map<Language, QuestionTranslation> hindi(ImportRow row, List<Option> options) {
+        Map<String, String> optionTexts = new LinkedHashMap<>();
+        for (Option o : options) {
+            String t = row.get(OPTION_PREFIX + o.id().toLowerCase(Locale.ROOT) + HINDI_SUFFIX);
+            if (t != null) {
+                optionTexts.put(o.id(), t);
+            }
+        }
+        QuestionTranslation t = new QuestionTranslation(row.get(QUESTION_TEXT + HINDI_SUFFIX), null, optionTexts,
+                null, null, row.get(SOLUTION_TEXT + HINDI_SUFFIX));
+        return t.hasNoText() ? null : Map.of(Language.HI, t);
     }
 
     static QuestionType parseType(String raw) {

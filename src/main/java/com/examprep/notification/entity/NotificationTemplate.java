@@ -70,6 +70,89 @@ public enum NotificationTemplate {
             {{resultUrl}}
 
             Team ExamPrep""",
+            false),
+
+    APPROVAL_REQUESTED(
+            "Approval needed: {{title}}",
+            """
+            Hi {{name}},
+
+            {{requester}} asked for approval to: {{title}}
+            Reason: {{reason}}
+
+            Review and approve or reject it here:
+            {{approvalUrl}}
+
+            This request expires on {{expiresAt}}.
+            Team ExamPrep""",
+            false),
+
+    APPROVAL_DECIDED(
+            "Your request was {{decision}}: {{title}}",
+            """
+            Hi {{name}},
+
+            Your request "{{title}}" was {{decision}} by {{decider}}.
+            Comment: {{comment}}
+
+            Details: {{approvalUrl}}
+
+            Team ExamPrep""",
+            false),
+
+    QUESTION_REVIEW_ASSIGNED(
+            "Question to review: {{preview}}",
+            """
+            Hi {{name}},
+
+            {{submitter}} sent a {{subject}} question for review:
+            "{{preview}}"
+
+            Please review it by {{dueAt}}:
+            {{questionUrl}}
+
+            Team ExamPrep""",
+            false),
+
+    QUESTION_CHANGES_REQUESTED(
+            "Changes requested: {{preview}}",
+            """
+            Hi {{name}},
+
+            {{reviewer}} asked for changes to your question:
+            "{{preview}}"
+
+            Comment: {{comment}}
+
+            Open it here: {{questionUrl}}
+
+            Team ExamPrep""",
+            false),
+
+    QUESTION_APPROVED(
+            "Question approved: {{preview}}",
+            """
+            Hi {{name}},
+
+            {{reviewer}} approved your question{{published}}:
+            "{{preview}}"
+
+            {{questionUrl}}
+
+            Team ExamPrep""",
+            false),
+
+    QUESTION_REVIEW_OVERDUE(
+            "Review overdue: {{preview}}",
+            """
+            Hi {{name}},
+
+            The review of this question was due on {{dueAt}} and is still open:
+            "{{preview}}"
+
+            {{questionUrl}}
+
+            Team ExamPrep""",
             false);
 
     public static final String REDACTED = "[redacted: contains a one-time secret]";

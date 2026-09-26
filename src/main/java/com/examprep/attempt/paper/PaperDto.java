@@ -1,7 +1,10 @@
 package com.examprep.attempt.paper;
 
 import com.examprep.question.dto.StudentQuestionView.PassageView;
+import com.examprep.question.dto.StudentTranslation;
+import com.examprep.question.entity.Language;
 import com.examprep.question.entity.QuestionType;
+import com.examprep.question.model.NumericFormat;
 import com.examprep.question.model.QuestionContent.MatchItem;
 import com.examprep.question.model.QuestionContent.Media;
 import com.examprep.question.model.QuestionContent.Option;
@@ -29,15 +32,20 @@ public record PaperDto(UUID testId, String title, int durationMinutes, BigDecima
      * @param number     1-based number shown in the palette (renumbered after shuffling)
      * @param options    in display order. Ids are the canonical labels answers are stored against,
      *                   so a shuffled display never changes what gets saved.
+     * @param language     language of {@code text}/{@code options}; {@code translations} holds the others
+     * @param shuffleOptions false when the author keeps this question's option order fixed
      */
     public record PaperQuestion(UUID questionId, int number, QuestionType type, BigDecimal marks,
                                 BigDecimal negativeMarks, boolean partialMarking, UUID paragraphId, String text,
                                 List<Media> images, List<Option> options, List<MatchItem> matchLeft,
-                                List<MatchItem> matchRight) {
+                                List<MatchItem> matchRight, Language language,
+                                Map<Language, StudentTranslation> translations, boolean shuffleOptions,
+                                NumericFormat numericFormat) {
 
         PaperQuestion withNumberAndOptions(int newNumber, List<Option> newOptions) {
             return new PaperQuestion(questionId, newNumber, type, marks, negativeMarks, partialMarking, paragraphId,
-                    text, images, newOptions, matchLeft, matchRight);
+                    text, images, newOptions, matchLeft, matchRight, language, translations, shuffleOptions,
+                    numericFormat);
         }
     }
 }

@@ -21,6 +21,9 @@ import java.util.UUID;
  * auth:bl:{jti}           -> "1"                      blacklisted access tokens (TTL = remaining lifetime)
  * auth:user:{userId}      -> hash {gen, sid}          token generation + active session (single-session mode)
  * auth:pwreset:{sha256}   -> "{userId}"               password-reset tokens (only the hash is stored)
+ * auth:sidrev:{sid}       -> "1"                      a single revoked session (TTL = refresh TTL)
+ * auth:mfa:{jti}          -> "{userId}"               pending 2FA challenge (single use, 5 min)
+ * auth:mfafail:{jti}      -> count                    wrong 2FA codes for that challenge
  * </pre>
  */
 @Component
@@ -31,6 +34,9 @@ public class TokenStore {
     private static final String BLACKLIST = "auth:bl:";
     private static final String USER = "auth:user:";
     private static final String PASSWORD_RESET = "auth:pwreset:";
+    private static final String SESSION_REVOKED = "auth:sidrev:";
+    private static final String MFA_CHALLENGE = "auth:mfa:";
+    private static final String MFA_FAILURES = "auth:mfafail:";
     private static final String FIELD_GENERATION = "gen";
     private static final String FIELD_SESSION = "sid";
 
@@ -76,7 +82,7 @@ public class TokenStore {
      * Loads everything the JWT filter needs in ONE pipelined round trip:
      * the blacklist flag for the access token, plus the user's generation and active session.
      */
-    public TokenState loadState(String accessJti, UUID userId) {
+    public TokenState loadState(String accessJti, UUID userId, String sessionId) {
         List<Object> results = redis.executePipelined(new SessionCallback<Object>() {
             @Override
             @SuppressWarnings("unchecked")
@@ -84,12 +90,14 @@ public class TokenStore {
                 RedisOperations<String, String> ops = (RedisOperations<String, String>) operations;
                 ops.hasKey(BLACKLIST + accessJti);
                 ops.opsForHash().multiGet(USER + userId, List.of(FIELD_GENERATION, FIELD_SESSION));
+                ops.hasKey(SESSION_REVOKED + (sessionId == null ? "-" : sessionId));
                 return null;
             }
         });
         boolean blacklisted = Boolean.TRUE.equals(results.get(0));
         List<?> fields = (List<?>) results.get(1);
-        return new TokenState(blacklisted, parseLong(fields.get(0)), (String) fields.get(1));
+        boolean sessionRevoked = Boolean.TRUE.equals(results.get(2));
+        return new TokenState(blacklisted || sessionRevoked, parseLong(fields.get(0)), (String) fields.get(1));
     }
 
     // ---------------------------------------------------------------- per-user state
@@ -120,6 +128,44 @@ public class TokenStore {
         activeSession(userId)
                 .filter(sessionId::equals)
                 .ifPresent(sid -> redis.opsForHash().delete(USER + userId, FIELD_SESSION));
+    }
+
+    // ---------------------------------------------------------------- single sessions
+
+    /** Revokes one session (one device): its access tokens stop working and it cannot refresh. */
+    public void revokeSession(String sessionId) {
+        redis.opsForValue().set(SESSION_REVOKED + sessionId, "1", props.jwt().refreshTokenTtl());
+    }
+
+    public boolean isSessionRevoked(String sessionId) {
+        return Boolean.TRUE.equals(redis.hasKey(SESSION_REVOKED + sessionId));
+    }
+
+    // ---------------------------------------------------------------- 2FA challenges
+
+    public void saveMfaChallenge(String jti, UUID userId, Duration ttl) {
+        redis.opsForValue().set(MFA_CHALLENGE + jti, userId.toString(), ttl);
+    }
+
+    /** Returns the user of a live challenge without consuming it (a wrong code may be retried). */
+    public Optional<UUID> peekMfaChallenge(String jti) {
+        return Optional.ofNullable(redis.opsForValue().get(MFA_CHALLENGE + jti)).map(UUID::fromString);
+    }
+
+    /** Consumes the challenge after a correct code, so it cannot be used twice. */
+    public boolean consumeMfaChallenge(String jti) {
+        return getAndDelete(MFA_CHALLENGE + jti) != null;
+    }
+
+    /** Counts a wrong code; after {@code max} failures the challenge is destroyed. Returns the count. */
+    public long recordMfaFailure(String jti, int max, Duration ttl) {
+        Long count = redis.opsForValue().increment(MFA_FAILURES + jti);
+        redis.expire(MFA_FAILURES + jti, ttl);
+        long n = count == null ? max : count;
+        if (n >= max) {
+            redis.delete(List.of(MFA_CHALLENGE + jti, MFA_FAILURES + jti));
+        }
+        return n;
     }
 
     // ---------------------------------------------------------------- password reset

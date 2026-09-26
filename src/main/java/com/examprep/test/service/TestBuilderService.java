@@ -7,7 +7,6 @@ import com.examprep.common.exception.ErrorCode;
 import com.examprep.common.exception.NotFoundException;
 import com.examprep.question.dto.QuestionRef;
 import com.examprep.question.dto.QuestionSummaryDto;
-import com.examprep.question.entity.QuestionStatus;
 import com.examprep.question.entity.QuestionType;
 import com.examprep.question.service.QuestionLookupService;
 import com.examprep.test.dto.BuilderDtos.AddQuestionsRequest;
@@ -37,6 +36,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -146,8 +146,8 @@ public class TestBuilderService {
 
     /**
      * Validates and appends questions to a section, preserving request order.
-     * Rules: questions must exist and be ACTIVE; PARAGRAPH ids expand to their active
-     * children; types must match the section's {@code questionType}; questions already
+     * Rules: questions must exist and be published (not archived), and are pinned to their
+     * published version; PARAGRAPH ids expand to their published children; types must match the section's {@code questionType}; questions already
      * in the test are skipped (reported, not an error). Any hard problem rejects the
      * whole batch.
      *
@@ -165,9 +165,9 @@ public class TestBuilderService {
             if (ref == null) {
                 problems.add("Question not found: " + id);
             } else if (ref.type() == QuestionType.PARAGRAPH) {
-                List<UUID> children = questions.findActiveChildIds(id);
+                List<UUID> children = questions.findUsableChildIds(id);
                 if (children.isEmpty()) {
-                    problems.add("Paragraph " + id + " has no active child questions");
+                    problems.add("Paragraph " + id + " has no published child questions");
                 } else {
                     expanded.add(id);
                     Map<UUID, QuestionRef> childRefs = questions.findRefs(children);
@@ -180,8 +180,10 @@ public class TestBuilderService {
 
         List<QuestionRef> toAdd = new ArrayList<>();
         for (QuestionRef ref : candidates) {
-            if (ref.status() != QuestionStatus.ACTIVE) {
-                problems.add("Question " + ref.id() + " is " + ref.status() + "; only ACTIVE questions can be added");
+            if (!ref.usable()) {
+                problems.add("Question " + ref.id() + (ref.publishedVersion() == null
+                        ? " has not been published yet; only published questions can be added"
+                        : " is archived"));
             } else if (section.getQuestionType() != null && ref.type() != section.getQuestionType()) {
                 problems.add("Question " + ref.id() + " is " + ref.type() + " but section '" + section.getName()
                         + "' accepts only " + section.getQuestionType());
@@ -195,6 +197,8 @@ public class TestBuilderService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, String.join("; ", problems));
         }
 
+        Map<UUID, QuestionRef> parents = questions.findRefs(toAdd.stream().map(QuestionRef::parentId)
+                .filter(Objects::nonNull).collect(Collectors.toSet()));
         int order = testQuestionRepository.maxDisplayOrder(section.getId());
         List<TestQuestion> rows = new ArrayList<>(toAdd.size());
         for (QuestionRef ref : toAdd) {
@@ -202,6 +206,8 @@ public class TestBuilderService {
             tq.setTestId(section.getTestId());
             tq.setSectionId(section.getId());
             tq.setQuestionId(ref.id());
+            tq.setQuestionVersion(ref.publishedVersion());
+            tq.setPassageVersion(passageVersion(ref, parents));
             tq.setDisplayOrder(++order);
             tq.setMarks(firstNonNull(marks, section.getDefaultMarks(), ref.defaultMarks()));
             tq.setNegativeMarks(firstNonNull(negativeMarks, section.getDefaultNegativeMarks(),
@@ -212,6 +218,48 @@ public class TestBuilderService {
         }
         testQuestionRepository.saveAll(rows);
         return rows.size();
+    }
+
+    /** The published version of the passage a paragraph child belongs to (its current version if never published). */
+    private static Integer passageVersion(QuestionRef ref, Map<UUID, QuestionRef> parents) {
+        if (ref.parentId() == null) {
+            return null;
+        }
+        QuestionRef parent = parents.get(ref.parentId());
+        if (parent == null) {
+            return null;
+        }
+        return parent.publishedVersion() != null ? parent.publishedVersion() : parent.currentVersion();
+    }
+
+    /**
+     * Moves every question of a DRAFT test to its latest published version (and passage).
+     * Published tests never change here; see the question publish flow for wording fixes.
+     *
+     * @return number of questions that moved
+     */
+    @Transactional
+    public int updateToLatestVersions(UUID testId) {
+        requireDraft(testId);
+        List<TestQuestion> tqs = testQuestionRepository.findByTestIdOrderByDisplayOrderAsc(testId);
+        Map<UUID, QuestionRef> refs = questions.findRefs(questionIds(tqs));
+        Map<UUID, QuestionRef> parents = questions.findRefs(refs.values().stream().map(QuestionRef::parentId)
+                .filter(Objects::nonNull).collect(Collectors.toSet()));
+        int moved = 0;
+        for (TestQuestion tq : tqs) {
+            QuestionRef ref = refs.get(tq.getQuestionId());
+            if (ref == null || ref.publishedVersion() == null) {
+                continue;
+            }
+            Integer passage = passageVersion(ref, parents);
+            if (ref.publishedVersion() != tq.getQuestionVersion()
+                    || !Objects.equals(passage, tq.getPassageVersion())) {
+                tq.setQuestionVersion(ref.publishedVersion());
+                tq.setPassageVersion(passage);
+                moved++;
+            }
+        }
+        return moved;
     }
 
     /**
@@ -325,6 +373,7 @@ public class TestBuilderService {
 
     private static TestQuestionDto toTestQuestionDto(TestQuestion tq, QuestionSummaryDto summary) {
         return new TestQuestionDto(tq.getId(), tq.getQuestionId(), tq.getDisplayOrder(), tq.getMarks(),
-                tq.getNegativeMarks(), tq.isPartialMarking(), summary);
+                tq.getNegativeMarks(), tq.isPartialMarking(), tq.getQuestionVersion(), tq.getPassageVersion(),
+                summary);
     }
 }

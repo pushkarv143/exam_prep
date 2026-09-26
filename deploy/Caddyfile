@@ -1,0 +1,17 @@
+# Front door on ports 80/443. Caddy gets a free Let's Encrypt HTTPS certificate for
+# SITE_HOST automatically (e.g. 129-154-226-175.sslip.io, a free name that points at the
+# server's IP). Plain http://<ip> keeps working as a fallback.
+
+{$SITE_HOST}, http://{$SITE_IP} {
+	encode gzip
+
+	# Public question images live in MinIO: /s3/examprep/public/... -> minio:9000/examprep/public/...
+	handle_path /s3/* {
+		reverse_proxy minio:9000
+	}
+
+	# Everything else: the React app, which also proxies /api to the backend.
+	handle {
+		reverse_proxy frontend:80
+	}
+}

@@ -1,6 +1,8 @@
 package com.examprep.auth.controller;
 
 import com.examprep.auth.dto.AuthResponse;
+import com.examprep.auth.dto.ClientInfo;
+import com.examprep.auth.dto.MfaLoginRequest;
 import com.examprep.auth.dto.ForgotPasswordRequest;
 import com.examprep.auth.dto.LoginRequest;
 import com.examprep.auth.dto.LogoutRequest;
@@ -14,6 +16,7 @@ import com.examprep.security.AuthUser;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -37,24 +40,33 @@ public class AuthController {
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
     @RateLimit(name = "register", limit = 10, windowSeconds = 3600)
-    public ApiResponse<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
-        return ApiResponse.ok(authService.register(request));
+    public ApiResponse<AuthResponse> register(@Valid @RequestBody RegisterRequest request, HttpServletRequest http) {
+        return ApiResponse.ok(authService.register(request, ClientInfo.of(http)));
     }
 
-    @Operation(summary = "Log in with email or phone + password")
+    @Operation(summary = "Log in with email or phone + password",
+            description = "If the account has 2FA, the response has mfaRequired=true and an mfaToken instead of tokens.")
     @SecurityRequirements
     @PostMapping("/login")
     @RateLimit(name = "login", limit = 10, windowSeconds = 60)
-    public ApiResponse<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
-        return ApiResponse.ok(authService.login(request));
+    public ApiResponse<AuthResponse> login(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
+        return ApiResponse.ok(authService.login(request, ClientInfo.of(http)));
+    }
+
+    @Operation(summary = "Second login step: mfaToken + 6-digit authenticator code (or a recovery code)")
+    @SecurityRequirements
+    @PostMapping("/login/mfa")
+    @RateLimit(name = "login-mfa", limit = 10, windowSeconds = 60)
+    public ApiResponse<AuthResponse> loginMfa(@Valid @RequestBody MfaLoginRequest request, HttpServletRequest http) {
+        return ApiResponse.ok(authService.loginMfa(request, ClientInfo.of(http)));
     }
 
     @Operation(summary = "Rotate tokens using a refresh token (single use)")
     @SecurityRequirements
     @PostMapping("/refresh")
     @RateLimit(name = "refresh", limit = 30, windowSeconds = 60)
-    public ApiResponse<AuthResponse> refresh(@Valid @RequestBody RefreshTokenRequest request) {
-        return ApiResponse.ok(authService.refresh(request.refreshToken()));
+    public ApiResponse<AuthResponse> refresh(@Valid @RequestBody RefreshTokenRequest request, HttpServletRequest http) {
+        return ApiResponse.ok(authService.refresh(request.refreshToken(), ClientInfo.of(http)));
     }
 
     @Operation(summary = "Log out: revoke the current access token and the given refresh token")

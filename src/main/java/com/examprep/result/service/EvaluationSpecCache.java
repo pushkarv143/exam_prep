@@ -1,5 +1,6 @@
 package com.examprep.result.service;
 
+import com.examprep.question.dto.QuestionPin;
 import com.examprep.question.dto.ScoringRef;
 import com.examprep.question.service.QuestionLookupService;
 import com.examprep.result.EvaluationProperties;
@@ -17,11 +18,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * Per-test scoring specification (structure, marking and answer keys), cached in memory.
- * Structure and keys are frozen once a test is published, so a short TTL is only a
- * safety net. Evaluating 50k attempts of one test costs one spec build per instance,
+ * Structure and pinned versions are fixed once a test is published (a same-scoring wording
+ * fix evicts the entry), so a short TTL is only a safety net. Evaluating 50k attempts of one test costs one spec build per instance,
  * not 50k key lookups.
  */
 @Component
@@ -38,7 +40,9 @@ public class EvaluationSpecCache {
         this.props = props;
     }
 
-    public record Spec(TestSnapshot test, List<SectionSpec> sections, List<QuestionSpec> questions) {
+    /** @param pins question id to the pinned version (and passage version), from the test structure */
+    public record Spec(TestSnapshot test, List<SectionSpec> sections, List<QuestionSpec> questions,
+                       Map<UUID, QuestionSlot> pins) {
     }
 
     private record Cached(Spec spec, long expiresAtNanos) {
@@ -60,8 +64,8 @@ public class EvaluationSpecCache {
 
     private Spec build(UUID testId) {
         TestStructure structure = tests.structure(testId);
-        Map<UUID, ScoringRef> refs = questions.findScoringRefs(
-                structure.slots().stream().map(QuestionSlot::questionId).toList());
+        Map<UUID, ScoringRef> refs = questions.findScoringRefs(structure.slots().stream()
+                .map(s -> new QuestionPin(s.questionId(), s.questionVersion())).toList());
         List<QuestionSpec> qs = structure.slots().stream()
                 .filter(s -> refs.containsKey(s.questionId()))
                 .map(s -> {
@@ -75,7 +79,8 @@ public class EvaluationSpecCache {
                 .map(sec -> new SectionSpec(sec.id(), sec.name(), sec.subjectId(), sec.maxQuestionsToAttempt(),
                         maxMarks(qs, sec.id(), sec.maxQuestionsToAttempt())))
                 .toList();
-        return new Spec(structure.test(), sections, qs);
+        return new Spec(structure.test(), sections, qs, structure.slots().stream()
+                .collect(Collectors.toMap(QuestionSlot::questionId, s -> s, (a, b) -> a)));
     }
 
     /** Same rule as the test builder: with "attempt any N", only the N highest marks count toward the maximum. */

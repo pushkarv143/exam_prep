@@ -4,6 +4,7 @@ import com.examprep.attempt.entity.AnswerState;
 import com.examprep.attempt.model.StudentAnswer;
 import com.examprep.question.entity.QuestionType;
 import com.examprep.question.model.AnswerKey;
+import com.examprep.question.model.PartialRule;
 import com.examprep.result.model.ScoreBreakdowns.SectionScore;
 import com.examprep.result.model.ScoreBreakdowns.TopicScore;
 
@@ -28,9 +29,11 @@ import java.util.stream.Collectors;
  *   <tr><td>SINGLE_CORRECT</td><td>+marks</td><td>−negative</td><td></td></tr>
  *   <tr><td>MULTIPLE_CORRECT</td><td>+marks if exactly the correct set</td>
  *       <td>−negative if any wrong option is chosen</td>
- *       <td>Correct options chosen but not all: with partial marking, +marks/4 per correct
- *       option chosen (the JEE Advanced +3/+2/+1 scheme for 4 marks). Without it, −negative.</td></tr>
- *   <tr><td>NUMERICAL</td><td>|answer − key| ≤ tolerance (exact if none)</td><td>−negative</td>
+ *       <td>Correct options chosen but not all: with partial marking, the question's rule applies:
+ *       JEE_ADVANCED (default) +marks/4 per correct option chosen (+3/+2/+1 for 4 marks),
+ *       PROPORTIONAL +marks × chosen / correct, NONE −negative. Without partial marking, −negative.</td></tr>
+ *   <tr><td>NUMERICAL</td><td>|answer − key| ≤ tolerance (exact if none), or min ≤ answer ≤ max for a
+ *       range key</td><td>−negative</td>
  *       <td>Unparseable input counts as wrong.</td></tr>
  *   <tr><td>MATCH</td><td>all pairs right</td><td>−negative</td><td></td></tr>
  * </table>
@@ -147,15 +150,19 @@ public final class ScoringEngine {
         if (chosen.equals(correct)) {
             return correct(q);
         }
-        if (!q.partialMarking()) {
+        if (!q.partialMarking() || q.key().partialRule() == PartialRule.NONE) {
             return new Outcome(q.questionId(), OutcomeType.INCORRECT, negative);
         }
-        BigDecimal perOption = q.marks().divide(FOUR, 2, RoundingMode.HALF_UP);
-        return new Outcome(q.questionId(), OutcomeType.PARTIAL, perOption.multiply(BigDecimal.valueOf(chosen.size())));
+        BigDecimal awarded = switch (q.key().partialRule()) {
+            case PROPORTIONAL -> q.marks().multiply(BigDecimal.valueOf(chosen.size()))
+                    .divide(BigDecimal.valueOf(correct.size()), 2, RoundingMode.HALF_UP);
+            default -> q.marks().divide(FOUR, 2, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(chosen.size()));
+        };
+        return new Outcome(q.questionId(), OutcomeType.PARTIAL, awarded);
     }
 
     static boolean numericalMatches(String value, AnswerKey key) {
-        if (value == null || key.value() == null) {
+        if (value == null || (key.value() == null && !key.hasRange())) {
             return false;
         }
         BigDecimal given;
@@ -163,6 +170,10 @@ public final class ScoringEngine {
             given = new BigDecimal(value.trim());
         } catch (NumberFormatException e) {
             return false;
+        }
+        if (key.hasRange()) {
+            return key.min() != null && key.max() != null
+                    && given.compareTo(key.min()) >= 0 && given.compareTo(key.max()) <= 0;
         }
         if (key.tolerance() == null) {
             return given.compareTo(key.value()) == 0;

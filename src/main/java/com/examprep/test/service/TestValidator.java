@@ -1,7 +1,6 @@
 package com.examprep.test.service;
 
 import com.examprep.question.dto.QuestionRef;
-import com.examprep.question.entity.QuestionStatus;
 import com.examprep.test.dto.TestDtos.ValidationReport;
 import com.examprep.test.entity.SeriesStatus;
 import com.examprep.test.entity.Test;
@@ -73,8 +72,12 @@ public class TestValidator {
                     errors.add("Question " + tq.getQuestionId() + " no longer exists");
                     continue;
                 }
-                if (ref.status() != QuestionStatus.ACTIVE) {
-                    errors.add("Question " + ref.id() + " in '" + s.getName() + "' is " + ref.status());
+                if (!ref.usable()) {
+                    errors.add("Question " + ref.id() + " in '" + s.getName() + "' is "
+                            + (ref.publishedVersion() == null ? "not published" : "archived"));
+                } else if (ref.publishedVersion() > tq.getQuestionVersion()) {
+                    warnings.add("Question " + ref.id() + " in '" + s.getName() + "' uses v" + tq.getQuestionVersion()
+                            + "; v" + ref.publishedVersion() + " is published. Update the test to use the latest versions.");
                 }
                 if (s.getQuestionType() != null && ref.type() != s.getQuestionType()) {
                     errors.add("Question " + ref.id() + " is " + ref.type() + " but '" + s.getName() + "' requires "
