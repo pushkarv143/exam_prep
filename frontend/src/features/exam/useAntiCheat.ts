@@ -9,15 +9,38 @@ interface QueuedEvent {
   details?: Record<string, string>
 }
 
+/** Why the student is away from the test right now. */
+export type LeaveCause = 'hidden' | 'fullscreen' | 'blur'
+
+/** Whether this browser can put the page in full screen (false on iPhone Safari, for example). */
+export const fullscreenSupported = () => typeof document !== 'undefined' && !!document.fullscreenEnabled
+
 /**
- * Proctoring signals: tab switches, focus loss, fullscreen exit, copy/paste/right-click
- * (copy/paste/context menu are also blocked). Events are batched to the server, which keeps
- * the authoritative counters and may auto-submit past the configured tab-switch limit.
- * These are deterrents and evidence for review, not proof: browsers cannot fully prevent cheating.
+ * Leaves allowed before the server auto-submits: it submits once the count exceeds
+ * `maxTabSwitches`, so the limit is the (max + 1)-th leave. 0 = no limit.
  */
-export function useAntiCheat(attemptId: string, enabled: boolean, onAutoSubmitted: () => void) {
+export function leaveLimit(maxTabSwitches: number): number {
+  return maxTabSwitches > 0 ? maxTabSwitches + 1 : 0
+}
+
+/**
+ * Proctoring. A browser cannot stop a student from pressing Esc, switching apps or minimising, so the
+ * test is *locked* instead: the moment the student leaves (tab hidden, window blurred, full screen
+ * exited) the page reports `away` and the exam screen hides the questions until they come back.
+ *
+ * One "leave" is counted per away episode, however many signals it fires (minimising a full-screen
+ * window fires blur, fullscreenchange and visibilitychange). It is reported as a TAB_SWITCH, which the
+ * server counts and auto-submits past `app.attempt.max-tab-switches`. The raw FULLSCREEN_EXIT,
+ * WINDOW_BLUR, COPY, ... events are still sent as evidence for review.
+ */
+export function useAntiCheat(attemptId: string, enabled: boolean, onAutoSubmitted: () => void,
+                             isFinishing: () => boolean) {
   const queue = useRef<QueuedEvent[]>([])
-  const [warning, setWarning] = useState<string | null>(null)
+  const awayRef = useRef<LeaveCause | null>(null)
+  const leavesRef = useRef(0)
+  const [away, setAway] = useState<LeaveCause | null>(null)
+  const [leaves, setLeaves] = useState(0)
+  const maxTabSwitches = useExamStore((s) => s.antiCheat.maxTabSwitches)
 
   const send = useCallback(async () => {
     if (queue.current.length === 0) return
@@ -25,6 +48,10 @@ export function useAntiCheat(attemptId: string, enabled: boolean, onAutoSubmitte
     try {
       const res = await attemptsApi.events(attemptId, batch)
       useExamStore.setState({ antiCheat: res })
+      if (res.tabSwitchCount > leavesRef.current) {
+        leavesRef.current = res.tabSwitchCount
+        setLeaves(res.tabSwitchCount)
+      }
       if (res.autoSubmitted) onAutoSubmitted()
     } catch {
       queue.current.unshift(...batch)   // retried on the next tick
@@ -36,21 +63,53 @@ export function useAntiCheat(attemptId: string, enabled: boolean, onAutoSubmitte
     if (urgent) void send()
   }, [send])
 
+  /** Back only when the tab is visible, focused and (where supported) in full screen. */
+  const checkBack = useCallback(() => {
+    if (!awayRef.current) return
+    const visible = document.visibilityState === 'visible'
+    const inFullscreen = !fullscreenSupported() || !!document.fullscreenElement
+    if (visible && document.hasFocus() && inFullscreen) {
+      awayRef.current = null
+      setAway(null)
+    }
+  }, [])
+
+  const leave = useCallback((cause: LeaveCause) => {
+    if (isFinishing()) return
+    if (awayRef.current) return          // same episode: count it once
+    awayRef.current = cause
+    setAway(cause)
+    leavesRef.current += 1
+    setLeaves(leavesRef.current)
+    record('TAB_SWITCH', { cause }, true)
+  }, [isFinishing, record])
+
   useEffect(() => {
     if (!enabled) return
+    const initial = useExamStore.getState().antiCheat.tabSwitchCount
+    if (initial > leavesRef.current) {
+      leavesRef.current = initial
+      setLeaves(initial)
+    }
+
     const onVisibility = () => {
-      if (document.visibilityState === 'hidden') {
-        record('TAB_SWITCH', undefined, true)
-        const ac = useExamStore.getState().antiCheat
-        const next = ac.tabSwitchCount + 1
-        setWarning(ac.maxTabSwitches > 0
-          ? `You switched away from the test (${next}/${ac.maxTabSwitches}). The test is submitted automatically after ${ac.maxTabSwitches} switches.`
-          : `You switched away from the test ${next} time(s). This is recorded.`)
+      if (document.visibilityState === 'hidden') leave('hidden')
+      else checkBack()
+    }
+    const onBlur = () => {
+      record('WINDOW_BLUR')
+      leave('blur')
+    }
+    const onFocus = () => checkBack()
+    const onFullscreen = () => {
+      if (document.fullscreenElement) {
+        record('FULLSCREEN_ENTER')
+        checkBack()
+      } else {
+        record('FULLSCREEN_EXIT')
+        leave('fullscreen')
       }
     }
-    const onBlur = () => record('WINDOW_BLUR')
-    const onFullscreen = () => record(document.fullscreenElement ? 'FULLSCREEN_ENTER' : 'FULLSCREEN_EXIT', undefined,
-      !document.fullscreenElement)
     const block = (type: AttemptEventType) => (e: Event) => {
       e.preventDefault()
       record(type)
@@ -63,6 +122,7 @@ export function useAntiCheat(attemptId: string, enabled: boolean, onAutoSubmitte
 
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('blur', onBlur)
+    window.addEventListener('focus', onFocus)
     document.addEventListener('fullscreenchange', onFullscreen)
     document.addEventListener('copy', onCopy)
     document.addEventListener('paste', onPaste)
@@ -73,6 +133,7 @@ export function useAntiCheat(attemptId: string, enabled: boolean, onAutoSubmitte
     return () => {
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('blur', onBlur)
+      window.removeEventListener('focus', onFocus)
       document.removeEventListener('fullscreenchange', onFullscreen)
       document.removeEventListener('copy', onCopy)
       document.removeEventListener('paste', onPaste)
@@ -81,7 +142,7 @@ export function useAntiCheat(attemptId: string, enabled: boolean, onAutoSubmitte
       window.removeEventListener('online', onOnline)
       clearInterval(timer)
     }
-  }, [enabled, record, send])
+  }, [enabled, record, send, leave, checkBack])
 
-  return { warning, dismissWarning: () => setWarning(null) }
+  return { away, leaves, limit: leaveLimit(maxTabSwitches), checkBack }
 }

@@ -3,6 +3,7 @@ import { CalendarClock, CheckCircle2, FileText, ShieldCheck } from 'lucide-react
 import { toast } from 'sonner'
 import { useExams } from '@/api/catalog'
 import { useEnroll, useSeriesDetail } from '@/api/series'
+import { LanguagePicker } from '@/components/common/LanguagePicker'
 import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -46,6 +47,8 @@ export default function SeriesDetailPage() {
               <span className="flex items-center gap-1.5"><CalendarClock className="size-4" /> {validityText(series)}</span>
             )}
           </div>
+
+          <LanguagePicker className="bg-card mt-6 max-w-xl rounded-xl border p-4" />
 
           <h2 className="mt-10 mb-4 text-xl font-semibold">Tests in this series</h2>
           {tests.length === 0

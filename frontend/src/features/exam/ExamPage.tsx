@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
-import { AlertTriangle, ChevronLeft, ChevronRight, CloudOff, Grid3x3, Keyboard, Loader2, Maximize, Minimize, WifiOff } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CloudOff, Grid3x3, Keyboard, Loader2, Maximize, ShieldAlert, WifiOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { attemptsApi } from '@/api/attempts'
 import { ErrorState, PageLoader } from '@/components/common/States'
@@ -23,7 +23,7 @@ import {
   clearBackup, initExam, paletteState, remainingMs, setAnswer, setMarked, tickCurrent, useExamStore, visit,
 } from './examStore'
 import { clearActiveAttempt, saveActiveAttempt } from './activeAttempt'
-import { useAntiCheat } from './useAntiCheat'
+import { fullscreenSupported, useAntiCheat } from './useAntiCheat'
 import { useAutosave } from './useAutosave'
 
 export default function ExamPage() {
@@ -76,13 +76,14 @@ function ExamScreen({ attemptId }: { attemptId: string }) {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(!!document.fullscreenElement)
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine)
-  const [resumeOpen, setResumeOpen] = useState(false)
-  const intentionalExit = useRef(false)
   const finishing = useRef(false)
+  const [finished, setFinished] = useState(false)
+  const requireFullscreen = fullscreenSupported()
 
   const goToResult = useCallback(() => {
     if (finishing.current) return
     finishing.current = true
+    setFinished(true)
     clearBackup(attemptId)
     clearActiveAttempt(attemptId)
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined)
@@ -91,7 +92,10 @@ function ExamScreen({ attemptId }: { attemptId: string }) {
   }, [attemptId, navigate, qc])
 
   const { flush, markFinished } = useAutosave(attemptId, goToResult)
-  const { warning, dismissWarning } = useAntiCheat(attemptId, started, goToResult)
+  const isFinishing = useCallback(() => finishing.current, [])
+  const { away, leaves, limit, checkBack } = useAntiCheat(attemptId, started, goToResult, isFinishing)
+  // The test is locked (questions hidden) while the student is away or out of full screen.
+  const locked = started && !finished && (away !== null || (requireFullscreen && !fullscreen))
 
   const submit = useCallback(async (auto: boolean) => {
     if (finishing.current) return
@@ -120,13 +124,12 @@ function ExamScreen({ attemptId }: { attemptId: string }) {
     const onFs = () => {
       const isFs = !!document.fullscreenElement
       setFullscreen(isFs)
-      // An unexpected drop out of full screen (e.g. Esc) — offer a calm way back, once.
-      if (!isFs && started && !finishing.current && !intentionalExit.current) setResumeOpen(true)
-      intentionalExit.current = false
+      // Chromium: with the keyboard locked, a single Esc no longer leaves full screen (it must be held).
+      if (isFs && !finishing.current) void lockKeyboard()
     }
     document.addEventListener('fullscreenchange', onFs)
     return () => document.removeEventListener('fullscreenchange', onFs)
-  }, [started])
+  }, [])
 
   // Network status drives the reconnect banner. Autosave keeps retrying in the background.
   useEffect(() => {
@@ -146,8 +149,7 @@ function ExamScreen({ attemptId }: { attemptId: string }) {
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [])
 
-  const enterFullscreen = () => document.documentElement.requestFullscreen?.().catch(() => undefined)
-  const exitFullscreen = () => { intentionalExit.current = true; void document.exitFullscreen().catch(() => undefined) }
+  const enterFullscreen = () => document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => undefined)
   const go = (i: number) => {
     if (i < 0 || i >= flat.length) return
     visit(i)
@@ -160,7 +162,7 @@ function ExamScreen({ attemptId }: { attemptId: string }) {
   // (Option keys 1–9 are handled inside the question panel.)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (confirmOpen || resumeOpen) return
+      if (confirmOpen || locked) return
       if (e.ctrlKey && e.key === 'Enter') {
         e.preventDefault()
         setMarked(qid, !marked)
@@ -176,7 +178,7 @@ function ExamScreen({ attemptId }: { attemptId: string }) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [index, qid, marked, confirmOpen, resumeOpen, flat.length])
+  }, [index, qid, marked, confirmOpen, locked, flat.length])
 
   if (!started) {
     return (
@@ -184,21 +186,35 @@ function ExamScreen({ attemptId }: { attemptId: string }) {
         <div className="max-w-md space-y-4 text-center">
           <h1 className="text-2xl font-semibold">{paper.title}</h1>
           <p className="text-muted-foreground">
-            The test runs in full-screen mode. Leaving full screen or switching tabs is recorded. Your answers are
-            saved automatically. If you get disconnected, simply reopen this page.
+            The test runs in full-screen mode. Your answers are saved automatically. If you get disconnected, simply
+            reopen this page.
           </p>
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-left text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+            <p className="flex items-center gap-1.5 font-medium"><ShieldAlert className="size-4" /> Stay in the test</p>
+            <p className="mt-1">
+              Leaving full screen, switching to another tab or app, or minimising the window counts as leaving the
+              test. The questions are hidden until you come back.
+              {limit > 0 && <> The <strong>{ordinal(limit)} time</strong> you leave, your test is submitted automatically.</>}
+            </p>
+          </div>
           {languages.length > 1 && (
             <div className="bg-muted/50 flex items-center justify-center gap-3 rounded-lg border p-3">
               <span className="text-sm font-medium">Question language</span>
               <LanguageSwitch languages={languages} />
             </div>
           )}
-          <Button size="lg" onClick={() => { void enterFullscreen(); setStarted(true) }}>
-            <Maximize /> Enter full screen &amp; begin
-          </Button>
-          <button type="button" className="text-muted-foreground block w-full text-sm underline" onClick={() => setStarted(true)}>
-            Continue without full screen
-          </button>
+          {requireFullscreen ? (
+            <Button size="lg" onClick={() => { void enterFullscreen(); setStarted(true) }}>
+              <Maximize /> Enter full screen &amp; begin
+            </Button>
+          ) : (
+            <>
+              <p className="text-muted-foreground text-xs">
+                This device can't switch the test to full screen. Switching apps or tabs is still counted.
+              </p>
+              <Button size="lg" onClick={() => setStarted(true)}>Begin test</Button>
+            </>
+          )}
         </div>
       </div>
     )
@@ -219,10 +235,6 @@ function ExamScreen({ attemptId }: { attemptId: string }) {
           <DarkModeToggle variant="secondary" />
           <ThemeMenu variant="secondary" />
         </div>
-        <Button variant="secondary" size="icon" onClick={() => (fullscreen ? exitFullscreen() : void enterFullscreen())}
-                aria-label={fullscreen ? 'Exit full screen' : 'Enter full screen'}>
-          {fullscreen ? <Minimize /> : <Maximize />}
-        </Button>
       </header>
 
       {!online && (
@@ -232,18 +244,6 @@ function ExamScreen({ attemptId }: { attemptId: string }) {
         </div>
       )}
 
-      {warning && (
-        <div className="flex items-center gap-2 bg-amber-100 px-4 py-2 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100" role="alert">
-          <AlertTriangle className="size-4 shrink-0" /> <span className="flex-1">{warning}</span>
-          <button type="button" className="underline" onClick={dismissWarning}>Dismiss</button>
-        </div>
-      )}
-      {!fullscreen && (
-        <div className="bg-muted flex items-center justify-between gap-2 px-4 py-1.5 text-xs">
-          <span>You are not in full-screen mode.</span>
-          <button type="button" className="text-primary font-medium underline" onClick={() => void enterFullscreen()}>Enter full screen</button>
-        </div>
-      )}
 
       {/* Section tabs */}
       <nav className="flex gap-1 overflow-x-auto border-b px-2" aria-label="Sections">
@@ -298,23 +298,58 @@ function ExamScreen({ attemptId }: { attemptId: string }) {
       <SubmitDialog open={confirmOpen} onOpenChange={setConfirmOpen} submitting={submitting}
                     onConfirm={() => void submit(false)} />
 
-      <Dialog open={resumeOpen} onOpenChange={setResumeOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>You left full screen</DialogTitle>
-            <DialogDescription>
-              No problem — your test is still running and every answer is saved. You can jump back into full screen
-              for a distraction-free view, or keep going in this window.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setResumeOpen(false)}>Stay in this window</Button>
-            <Button onClick={() => { setResumeOpen(false); void enterFullscreen() }}>
-              <Maximize /> Resume in full screen
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {locked && (
+        <LockOverlay leaves={leaves} limit={limit} needsFullscreen={requireFullscreen && !fullscreen}
+                     onReturn={() => { if (requireFullscreen && !fullscreen) void enterFullscreen(); else checkBack() }} />
+      )}
+    </div>
+  )
+}
+
+const ordinal = (n: number) => {
+  const suffix = n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] ?? 'th'
+  return `${n}${suffix}`
+}
+
+type KeyboardLock = { lock?: (codes?: string[]) => Promise<void> }
+
+/** Chromium only: capture Esc and browser shortcuts while in full screen, so leaving takes a long Esc press. */
+async function lockKeyboard() {
+  try {
+    await (navigator as Navigator & { keyboard?: KeyboardLock }).keyboard?.lock?.()
+  } catch {
+    // Not supported or not allowed: the lock overlay still applies.
+  }
+}
+
+/** Covers the whole exam while the student is away or out of full screen. The timer keeps running. */
+function LockOverlay({ leaves, limit, needsFullscreen, onReturn }: {
+  leaves: number; limit: number; needsFullscreen: boolean; onReturn: () => void
+}) {
+  const left = limit > 0 ? Math.max(0, limit - leaves) : null
+  return (
+    <div className="bg-background fixed inset-0 z-[100] flex items-center justify-center p-6" role="alertdialog"
+         aria-modal="true" aria-labelledby="lock-title" aria-describedby="lock-desc">
+      <div className="max-w-md space-y-4 text-center">
+        <ShieldAlert className="text-destructive mx-auto size-12" aria-hidden />
+        <h2 id="lock-title" className="text-2xl font-semibold">
+          {leaves > 0 ? 'You left the test' : 'Full screen required'}
+        </h2>
+        <div id="lock-desc" className="text-muted-foreground space-y-2">
+          <p>Your questions are hidden until you return. Your answers are saved and the timer is still running.</p>
+          {leaves > 0 && left !== null && left > 0 && (
+            <p className="text-destructive font-medium">
+              Warning {leaves} of {limit - 1}. If you leave {left === 1 ? 'once more' : `${left} more times`}, your
+              test is submitted automatically.
+            </p>
+          )}
+          {left === 0 && <p className="text-destructive font-medium">You left the test too many times. Submitting your test…</p>}
+          {leaves > 0 && left === null && <p>This has been recorded ({leaves} {leaves === 1 ? 'time' : 'times'}).</p>}
+        </div>
+        <Button size="lg" onClick={onReturn}>
+          {needsFullscreen ? <><Maximize /> Return to full screen</> : 'Continue the test'}
+        </Button>
+      </div>
     </div>
   )
 }

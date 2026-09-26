@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { CalendarClock, Clock, ListChecks, Lock, PlayCircle, Target, Trophy } from 'lucide-react'
 import { attemptsApi, useMyAttempts, useTestInfo } from '@/api/attempts'
+import { LanguagePicker } from '@/components/common/LanguagePicker'
 import { MathText } from '@/components/common/MathText'
 import { ErrorState, PageLoader } from '@/components/common/States'
 import { PageHeader } from '@/components/layout/Layouts'
@@ -20,7 +21,7 @@ const GENERAL_INSTRUCTIONS = [
   'Answers are saved automatically every few seconds and whenever you move between questions. If your connection drops, keep working: answers are kept on this device and sent when you are back online.',
   'If the browser closes, open the test again from this page to resume. The timer keeps running while you are away.',
   'The question palette shows each question\'s status: not visited, not answered, answered, marked for review, or answered and marked. Answered-and-marked questions are evaluated.',
-  'Switching tabs, leaving full screen, copy and paste are recorded.',
+  'The test must be taken in full screen. Leaving full screen, switching to another tab or app, or minimising the window counts as leaving the test: your questions are hidden until you return, and after repeated exits the test is submitted automatically. Copy and paste are blocked.',
 ]
 
 export default function TestInstructionsPage() {
@@ -158,6 +159,7 @@ function StartCard({ test, attempts, attemptsLoading }: { test: TestInfo; attemp
           </Alert>
         ) : (
           <>
+            <LanguagePicker showHelp={false} />
             {!inProgress && (
               <label className="flex items-start gap-2 text-sm">
                 <Checkbox checked={agreed} onCheckedChange={(v) => setAgreed(v === true)} className="mt-0.5" />
