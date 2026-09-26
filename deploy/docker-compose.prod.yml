@@ -63,7 +63,8 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD}
       FRONTEND_URL: ${FRONTEND_URL:-https://${SITE_HOST}}   # set FRONTEND_URL in .env when the site is served from Vercel
-      CORS_ALLOWED_ORIGINS: https://${SITE_HOST},http://${SITE_IP}
+      # Browsers send Origin on POST even through the Vercel proxy, so the Vercel domain must be allowed.
+      CORS_ALLOWED_ORIGINS: https://${SITE_HOST},http://${SITE_IP}${EXTRA_CORS_ORIGINS:+,${EXTRA_CORS_ORIGINS}}
       EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}

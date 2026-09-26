@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Runs ON the server (run-deploy.cmd copies it there and starts it).
-# Usage: bash deploy.sh <public-ip>
+# Usage: bash deploy.sh <public-ip> [KEY=VALUE ...]   (each KEY=VALUE is written into .env)
 # First run: creates ~/examprep/.env with random secrets (never overwritten afterwards).
 # Every run: pulls the newest images from ghcr.io and restarts what changed.
 set -euo pipefail
 
-IP="${1:?usage: deploy.sh <public-ip>}"
+IP="${1:?usage: deploy.sh <public-ip> [KEY=VALUE ...]}"
+shift
 cd ~/examprep
 COMPOSE="sudo docker compose -f docker-compose.prod.yml"
 
@@ -41,6 +42,16 @@ PAYMENT_PROVIDER=MOCK
 EOF
   echo "    Admin login: admin@examprep.local / $ADMIN_PASS"
 fi
+
+# Settings passed on the command line (from run-deploy.cmd) replace or add lines in .env.
+for kv in "$@"; do
+  key="${kv%%=*}"
+  grep -v "^${key}=" .env > .env.tmp || true
+  printf '%s\n' "$kv" >> .env.tmp
+  mv .env.tmp .env
+  chmod 600 .env
+  echo "==> .env: ${key} set"
+done
 
 echo "==> Pulling images"
 if ! $COMPOSE pull --quiet; then
